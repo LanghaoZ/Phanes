@@ -52,6 +52,14 @@ dist/
 *.egg
 .pytest_cache/
 
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+*.nupkg
+
 # Java
 *.class
 *.jar
