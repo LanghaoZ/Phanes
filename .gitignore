@@ -47,10 +47,19 @@ __pycache__/
 venv/
 .venv/
 env/
+.python-version
 *.egg-info/
 dist/
 *.egg
 .pytest_cache/
+
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+*.nupkg
 
 # Java
 *.class
