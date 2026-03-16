@@ -21,8 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Phanes.Task.Contracts\Phanes.Task.Contracts.csproj" />
-    <ProjectReference Include="..\..\src\Phanes.Task\Phanes.Task.csproj" />
+    <ProjectReference Include="..\..\src\Phanes.Task.Core\Phanes.Task.Core.csproj" />
   </ItemGroup>
 
 </Project>

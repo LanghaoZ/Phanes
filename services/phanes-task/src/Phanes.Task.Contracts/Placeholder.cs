@@ -1,1 +1,0 @@
-namespace Phanes.Task.Contracts;
