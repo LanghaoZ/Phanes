@@ -51,11 +51,12 @@ class RunService:
         # OpenRouter model IDs are namespaced ("deepseek/...", "openai/...").
         # The SDK's default MultiProvider treats the namespace as a routing
         # prefix ("Unknown prefix: deepseek") or strips "openai/". model_id
-        # modes pass the full string through to the (OpenRouter) client.
+        # modes pass the full string through to the (OpenRouter) client,
+        # which serves them on its Responses endpoint (/api/v1/responses).
         self._model_provider = MultiProvider(
             unknown_prefix_mode="model_id",
             openai_prefix_mode="model_id",
-            openai_use_responses=False,
+            openai_use_responses=True,
         )
 
     def _pair_lock(self, session_id: str, agent_type: str) -> asyncio.Lock:

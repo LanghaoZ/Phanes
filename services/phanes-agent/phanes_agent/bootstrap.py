@@ -3,8 +3,11 @@
 Order matters:
 1. OpenRouter as the default client (use_for_tracing=False — the default True
    would send the OpenRouter key to OpenAI's trace-ingest endpoint).
-2. Chat Completions API (the SDK defaults to Responses, which OpenRouter
-   doesn't speak — every call would 404).
+2. Responses API (decided 2026-08-02): OpenRouter serves /api/v1/responses
+   (beta) and it's the SDK-native shape — richer reasoning-item handling,
+   and it unlocks the sandbox Compaction capability later. Rollback is a
+   one-liner: set_default_openai_api("chat_completions") (+ the
+   use_responses flags in core/runs.py).
 3. Replace the default trace processors (which upload to OpenAI) with our
    local MySQL processor.
 4. Attach Phoenix (OpenInference instrumentation) as the second pipeline —
@@ -35,7 +38,7 @@ def configure_models(settings: Settings) -> None:
         api_key=settings.openrouter_api_key,
     )
     set_default_openai_client(client, use_for_tracing=False)
-    set_default_openai_api("chat_completions")
+    set_default_openai_api("responses")
 
 
 def configure_tracing(settings: Settings) -> LocalTraceProcessor:
