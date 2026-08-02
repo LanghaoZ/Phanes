@@ -1,0 +1,35 @@
+# Dev dependencies for phanes-agent (same-machine rule: everything local).
+# Prod equivalents run on Atlas.
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: phanes-agent-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: phanes_agent
+      MYSQL_USER: phanes
+      MYSQL_PASSWORD: phanes
+    ports:
+      - "3306:3306"
+    volumes:
+      - phanes_agent_mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uphanes", "-pphanes"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  phoenix:
+    image: arizephoenix/phoenix:latest
+    container_name: phanes-agent-phoenix
+    environment:
+      PHOENIX_WORKING_DIR: /mnt/data
+    ports:
+      - "6006:6006" # UI + OTLP HTTP collector
+      - "4317:4317" # OTLP gRPC collector
+    volumes:
+      - phanes_agent_phoenix:/mnt/data
+
+volumes:
+  phanes_agent_mysql:
+  phanes_agent_phoenix:

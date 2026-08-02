@@ -1,22 +1,40 @@
-from pydantic_settings import BaseSettings
+from pathlib import Path
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+SERVICE_ROOT = Path(__file__).resolve().parent.parent
 
 
 class Settings(BaseSettings):
-    # LLM
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    app_env: str = "development"
+
+    # OpenRouter. Key intentionally defaults to empty — bootstrap fails fast
+    # with a clear message; real value is injected via environment variable.
     openrouter_api_key: str = ""
-    anthropic_api_key: str = ""
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
 
-    # Phanes-Task API
-    task_api_base_url: str = "http://localhost:5000"
+    # Storage. Async URL is what the service uses; the sync variant (derived)
+    # is used by the trace writer thread.
+    database_url: str = "mysql+aiomysql://phanes:phanes@localhost:3306/phanes_agent"
+    create_tables: bool = True
 
-    # Sandbox
-    sandbox_image: str = "phanes-sandbox:latest"
-    sandbox_cpu_limit: float = 1.0
-    sandbox_memory_limit_mb: int = 512
-    sandbox_timeout_seconds: int = 300
+    # Phoenix trace debug UI (second pipeline; MySQL stays system-of-record).
+    phoenix_enabled: bool = True
+    phoenix_collector_endpoint: str = "http://localhost:6006"
+    phoenix_project: str = "phanes-agent"
 
-    class Config:
-        env_file = ".env"
+    # Runtime knobs
+    max_concurrent_runs: int = 8
+    run_timeout_seconds: int = 300
 
+    # AgentType config source — slice 1: local files (phanes-config later).
+    agent_types_file: Path = SERVICE_ROOT / "config" / "agent_types.yaml"
+    prompts_file: Path = SERVICE_ROOT / "config" / "prompts.yaml"
 
-settings = Settings()
+    @property
+    def database_url_sync(self) -> str:
+        return self.database_url.replace("+aiomysql", "+pymysql").replace(
+            "+aiosqlite", ""
+        )

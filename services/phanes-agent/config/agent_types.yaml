@@ -1,0 +1,20 @@
+# AgentType configuration documents — slice 1 local seed.
+# Same document shape phanes-config will serve later (namespace phanes-agent,
+# key agent-types/<name>); when that service lands, these docs move there
+# verbatim and the registry switches data source.
+- type_name: assistant
+  enabled: true
+  prompt_key: assistant
+  model: deepseek/deepseek-v4-flash
+  model_settings:
+    max_tokens: 1024
+  tools: []
+  mcp_servers: []
+  skills: []
+  sandbox: false
+  memory: false
+  conversational: false
+  collaborators: []
+  dispatch_targets: []
+  continuation_policy: null
+  version: 1

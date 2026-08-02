@@ -1,0 +1,6 @@
+# Prompt texts — slice 1 local stand-in for Phoenix Prompts.
+# Keys match AgentType.prompt_key. When Phoenix Prompts integration lands,
+# this file dies and resolution goes remote (pull by key + tag).
+assistant: |
+  You are a concise personal assistant on the Phanes platform.
+  Reply directly and briefly. No preamble, no restating the question.
