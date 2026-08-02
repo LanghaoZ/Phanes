@@ -11,6 +11,7 @@ import asyncio
 import logging
 
 from agents import Runner
+from agents.models.multi_provider import MultiProvider
 from agents.run_config import RunConfig
 from agents.tracing import gen_trace_id
 from sqlalchemy import select
@@ -47,6 +48,15 @@ class RunService:
         self._semaphore = asyncio.Semaphore(settings.max_concurrent_runs)
         self._pair_locks: dict[tuple[str, str], asyncio.Lock] = {}
         self._tasks: dict[str, asyncio.Task] = {}
+        # OpenRouter model IDs are namespaced ("deepseek/...", "openai/...").
+        # The SDK's default MultiProvider treats the namespace as a routing
+        # prefix ("Unknown prefix: deepseek") or strips "openai/". model_id
+        # modes pass the full string through to the (OpenRouter) client.
+        self._model_provider = MultiProvider(
+            unknown_prefix_mode="model_id",
+            openai_prefix_mode="model_id",
+            openai_use_responses=False,
+        )
 
     def _pair_lock(self, session_id: str, agent_type: str) -> asyncio.Lock:
         return self._pair_locks.setdefault((session_id, agent_type), asyncio.Lock())
@@ -121,6 +131,7 @@ class RunService:
                     try:
                         registered = self._registry.get(agent_type)
                         run_config = RunConfig(
+                            model_provider=self._model_provider,
                             workflow_name=agent_type,
                             trace_id=trace_id,
                             group_id=session_id,

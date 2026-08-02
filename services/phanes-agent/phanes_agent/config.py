@@ -17,7 +17,11 @@ class Settings(BaseSettings):
 
     # Storage. Async URL is what the service uses; the sync variant (derived)
     # is used by the trace writer thread.
-    database_url: str = "mysql+aiomysql://phanes:phanes@localhost:3306/phanes_agent"
+    # Platform MySQL (phanes-task compose on dev; Atlas on prod), schema
+    # phanes_agent — single instance, separate schemas.
+    database_url: str = (
+        "mysql+aiomysql://phanes:phanes_dev@localhost:3306/phanes_agent"
+    )
     create_tables: bool = True
 
     # Phoenix trace debug UI (second pipeline; MySQL stays system-of-record).

@@ -1,27 +1,25 @@
 # Dev dependencies for phanes-agent (same-machine rule: everything local).
+#
+# MySQL is NOT started here: the platform runs ONE MySQL instance with
+# separate schemas (phanes_task / phanes_agent). On the dev Mac that
+# instance comes from services/phanes-task/docker-compose.yml
+# (container phanes-mysql). One-time schema setup:
+#
+#   docker exec phanes-mysql mysql -uroot -pphanes_root \
+#     -e "CREATE DATABASE IF NOT EXISTS phanes_agent CHARACTER SET utf8mb4; \
+#         GRANT ALL PRIVILEGES ON phanes_agent.* TO 'phanes'@'%'; FLUSH PRIVILEGES;"
+#
 # Prod equivalents run on Atlas.
 services:
-  mysql:
-    image: mysql:8.4
-    container_name: phanes-agent-mysql
-    environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: phanes_agent
-      MYSQL_USER: phanes
-      MYSQL_PASSWORD: phanes
-    ports:
-      - "3306:3306"
-    volumes:
-      - phanes_agent_mysql:/var/lib/mysql
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uphanes", "-pphanes"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-
   phoenix:
-    image: arizephoenix/phoenix:latest
+    # Pinned version + platform: the arm64 builds (19.12 and 19.13/latest
+    # alike) die with SIGILL on Apple Silicon as of 2026-08-02 — a native
+    # extension in the server startup path, not Python itself (verified).
+    # amd64 under Rosetta runs clean. Revisit on version bumps.
+    image: arizephoenix/phoenix:19.12
+    platform: linux/amd64
     container_name: phanes-agent-phoenix
+    restart: unless-stopped
     environment:
       PHOENIX_WORKING_DIR: /mnt/data
     ports:
@@ -31,5 +29,4 @@ services:
       - phanes_agent_phoenix:/mnt/data
 
 volumes:
-  phanes_agent_mysql:
   phanes_agent_phoenix:

@@ -56,7 +56,12 @@ def configure_tracing(settings: Settings) -> LocalTraceProcessor:
                 endpoint=f"{settings.phoenix_collector_endpoint}/v1/traces",
                 set_global_tracer_provider=False,
             )
-            OpenAIAgentsInstrumentor().instrument(tracer_provider=tracer_provider)
+            # exclusive_processor=False is load-bearing: the default (True)
+            # calls set_trace_processors([openinference]) and silently wipes
+            # the MySQL processor; False appends alongside it.
+            OpenAIAgentsInstrumentor().instrument(
+                tracer_provider=tracer_provider, exclusive_processor=False
+            )
             logger.info(
                 "Phoenix instrumentation attached. endpoint=%s project=%s",
                 settings.phoenix_collector_endpoint,

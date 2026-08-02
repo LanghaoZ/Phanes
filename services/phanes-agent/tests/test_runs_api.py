@@ -18,15 +18,18 @@ class FakeRunner:
     delay = 0.0
     active = 0
     max_active = 0
+    last_run_config = None
 
     @classmethod
     def reset(cls, delay: float = 0.0):
         cls.delay = delay
         cls.active = 0
         cls.max_active = 0
+        cls.last_run_config = None
 
     @classmethod
     async def run(cls, agent, input, *, run_config=None):
+        cls.last_run_config = run_config
         cls.active += 1
         cls.max_active = max(cls.max_active, cls.active)
         try:
@@ -66,6 +69,13 @@ def test_run_wait_true(client, fake_runner):
     assert body["output_tokens"] == 5
     assert body["trace_id"].startswith("trace_")
     assert body["session_id"]
+
+    # OpenRouter namespaced model IDs must pass through MultiProvider intact.
+    rc = fake_runner.last_run_config
+    assert rc.workflow_name == "assistant"
+    assert rc.group_id == body["session_id"]
+    assert rc.model_provider._unknown_prefix_mode == "model_id"
+    assert rc.model_provider._openai_prefix_mode == "model_id"
 
 
 def test_run_async_then_poll(client, fake_runner):
