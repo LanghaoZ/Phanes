@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     max_concurrent_runs: int = 8
     run_timeout_seconds: int = 300
 
+    # Logging: console plaintext + rolling JSON file (phanes-task parity).
+    log_level: str = "INFO"
+    log_dir: Path = SERVICE_ROOT / "logs"
+    log_retention_days: int = 30
+
     # AgentType config source — slice 1: local files (phanes-config later).
     agent_types_file: Path = SERVICE_ROOT / "config" / "agent_types.yaml"
     prompts_file: Path = SERVICE_ROOT / "config" / "prompts.yaml"

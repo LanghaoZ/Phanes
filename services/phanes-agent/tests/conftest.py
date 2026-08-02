@@ -13,6 +13,7 @@ def settings(tmp_path) -> Settings:
         phoenix_enabled=False,
         create_tables=True,
         run_timeout_seconds=10,
+        log_dir=tmp_path / "logs",
         _env_file=None,
     )
 

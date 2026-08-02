@@ -1,4 +1,3 @@
-import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -8,16 +7,13 @@ from .bootstrap import configure_models, configure_tracing
 from .config import Settings
 from .core.registry import load_registry
 from .core.runs import RunService
+from .logging_setup import setup_logging
 from .storage.db import init_db, make_engine, make_sessionmaker
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
-)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
+    setup_logging(settings)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):

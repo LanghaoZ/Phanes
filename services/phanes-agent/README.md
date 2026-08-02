@@ -60,6 +60,24 @@ docker exec phanes-mysql \
   -e 'select run_id, status, input_tokens, output_tokens from runs order by created_at desc limit 5;'
 ```
 
+## Logs
+
+Two sinks, mirroring the phanes-task Serilog convention:
+
+- **console** — human-readable, for foreground dev
+- **`logs/phanes-agent.log`** — JSON lines, daily rotation, 30 days
+  retained (gitignored)
+
+```bash
+tail -f logs/phanes-agent.log | jq .
+jq 'select(.level=="ERROR")' logs/phanes-agent.log
+```
+
+Step-level debugging (model inputs/outputs, tool calls, tokens, latency)
+lives in the trace pipeline — Phoenix UI or the MySQL `traces`/`spans`
+tables — not in these logs. Uvicorn's HTTP access lines stay
+console-only for now.
+
 ## Notes
 
 - `POST /runs` without `?wait=true` returns 202 immediately; poll
