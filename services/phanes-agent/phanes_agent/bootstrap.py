@@ -24,8 +24,8 @@ logger = logging.getLogger(__name__)
 def configure_models(settings: Settings) -> None:
     if not settings.openrouter_api_key:
         raise RuntimeError(
-            "OPENROUTER_API_KEY is not set. Export it as an environment "
-            "variable (or put it in .env); see .env.example."
+            "PHANES_API_KEY (or OPENROUTER_API_KEY) is not set. Export it as "
+            "an environment variable (or put it in .env); see .env.example."
         )
 
     from agents import set_default_openai_api, set_default_openai_client

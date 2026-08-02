@@ -24,9 +24,8 @@ docker exec phanes-mysql mysql -uroot -pphanes_root \
 # 2. Phoenix (trace debug UI)
 docker compose up -d
 
-# 3. Environment
+# 3. Environment (PHANES_API_KEY already lives in ~/.zshrc)
 cp .env.example .env
-export OPENROUTER_API_KEY=sk-or-...   # or edit .env; never committed
 
 # 4. Install & run (single worker — required, in-process state)
 uv sync

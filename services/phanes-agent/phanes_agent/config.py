@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 SERVICE_ROOT = Path(__file__).resolve().parent.parent
@@ -12,7 +13,12 @@ class Settings(BaseSettings):
 
     # OpenRouter. Key intentionally defaults to empty — bootstrap fails fast
     # with a clear message; real value is injected via environment variable.
-    openrouter_api_key: str = ""
+    # PHANES_API_KEY is the user's convention (~/.zshrc); OPENROUTER_API_KEY
+    # also accepted.
+    openrouter_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("phanes_api_key", "openrouter_api_key"),
+    )
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
 
     # Storage. Async URL is what the service uses; the sync variant (derived)
