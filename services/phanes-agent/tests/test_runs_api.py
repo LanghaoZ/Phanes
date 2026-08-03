@@ -76,6 +76,9 @@ def test_run_wait_true(client, fake_runner):
     assert rc.group_id == body["session_id"]
     assert rc.model_provider._unknown_prefix_mode == "model_id"
     assert rc.model_provider._openai_prefix_mode == "model_id"
+    # Reproducibility: every run records which config/prompt version it ran.
+    assert rc.trace_metadata["config_version"] == 1
+    assert rc.trace_metadata["prompt_version"] == "pv-assistant"
 
 
 def test_run_async_then_poll(client, fake_runner):
@@ -143,6 +146,16 @@ def test_agent_types_endpoint(client, fake_runner):
     names = [t["type_name"] for t in body["types"]]
     assert "assistant" in names
     assert body["rejected"] == {}
+    assert body["prompt_tag"] == "development"
+    entry = body["types"][0]
+    assert entry["config_version"] == 1
+    assert entry["prompt_version_id"] == "pv-assistant"
+
+
+def test_admin_reload_endpoint(client, fake_runner):
+    body = client.post("/admin/agent-types/reload").json()
+    assert body["reloaded"] is False
+    assert "assistant" in body["types"]
 
 
 def test_healthz(client, fake_runner):

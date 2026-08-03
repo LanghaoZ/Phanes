@@ -60,6 +60,24 @@ wheels = [
 ]
 
 [[package]]
+name = "arize-phoenix-client"
+version = "2.13.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+    { name = "openinference-instrumentation" },
+    { name = "openinference-semantic-conventions" },
+    { name = "opentelemetry-exporter-otlp" },
+    { name = "opentelemetry-sdk" },
+    { name = "tqdm" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/1c/b3/8231172f4595b658b589974ae811aa6b0267ccc857c118a04d53e1c8ebb6/arize_phoenix_client-2.13.0.tar.gz", hash = "sha256:0fdb49ddc0eab9f9036378c0f0a8ac68d87dadc6561491b254caccc763687c9c", size = 237816, upload-time = "2026-07-12T02:40:55.999Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9b/b4/fc2d8cfb9286de91a5410e8f884ab0e61c28c280082cd669e8075111aee6/arize_phoenix_client-2.13.0-py3-none-any.whl", hash = "sha256:efcc41fc8152c38a2cee21588eda7ad519eec69ce46618918d84490eb98796ed", size = 217226, upload-time = "2026-07-12T02:40:54.374Z" },
+]
+
+[[package]]
 name = "arize-phoenix-otel"
 version = "0.16.1"
 source = { registry = "https://pypi.org/simple" }
@@ -908,14 +926,15 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiomysql" },
+    { name = "arize-phoenix-client" },
     { name = "arize-phoenix-otel" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "openai-agents" },
     { name = "openinference-instrumentation-openai-agents" },
     { name = "pydantic-settings" },
     { name = "pymysql" },
     { name = "python-ulid" },
-    { name = "pyyaml" },
     { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -931,14 +950,15 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiomysql", specifier = ">=0.2.0" },
+    { name = "arize-phoenix-client", specifier = ">=2.13.0" },
     { name = "arize-phoenix-otel", specifier = ">=0.9.0" },
     { name = "fastapi", specifier = ">=0.115.0" },
+    { name = "httpx", specifier = ">=0.28.1" },
     { name = "openai-agents", specifier = ">=0.19,<0.20" },
     { name = "openinference-instrumentation-openai-agents", specifier = ">=0.1.0" },
     { name = "pydantic-settings", specifier = ">=2.0.0" },
     { name = "pymysql", specifier = ">=1.1.0" },
     { name = "python-ulid", specifier = ">=2.7.0" },
-    { name = "pyyaml", specifier = ">=6.0" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.30" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30.0" },
 ]

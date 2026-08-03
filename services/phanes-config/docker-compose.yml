@@ -1,0 +1,19 @@
+# Dev dependency for phanes-config (same-machine rule). Prod: the MongoDB
+# container already running on Atlas.
+services:
+  mongo:
+    image: mongo:7
+    container_name: phanes-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - phanes_mongo:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ping: 1})"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  phanes_mongo:

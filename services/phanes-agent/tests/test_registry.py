@@ -1,81 +1,110 @@
 import pytest
+from tests.conftest import ASSISTANT_DOC, FakePromptResolver
 
-from phanes_agent.config import Settings
-from phanes_agent.core.registry import UnknownAgentTypeError, load_registry
+from phanes_agent.core.registry import (
+    RegistryManager,
+    UnknownAgentTypeError,
+    build_registry,
+)
 
 
-def _settings(tmp_path, agent_types_yaml: str, prompts_yaml: str) -> Settings:
-    types_file = tmp_path / "agent_types.yaml"
-    prompts_file = tmp_path / "prompts.yaml"
-    types_file.write_text(agent_types_yaml, encoding="utf-8")
-    prompts_file.write_text(prompts_yaml, encoding="utf-8")
-    return Settings(
-        openrouter_api_key="test",
-        agent_types_file=types_file,
-        prompts_file=prompts_file,
-        _env_file=None,
+async def test_builds_valid_type():
+    registry = await build_registry(
+        {"agent-types/assistant": (3, ASSISTANT_DOC)},
+        FakePromptResolver({"assistant": "prompt text"}),
     )
-
-
-def test_loads_valid_type(tmp_path):
-    settings = _settings(
-        tmp_path,
-        """
-- type_name: assistant
-  prompt_key: assistant
-  model: deepseek/deepseek-v4-flash
-  model_settings: {max_tokens: 256}
-""",
-        "assistant: You are a test assistant.\n",
-    )
-    registry = load_registry(settings)
     entry = registry.get("assistant")
     assert entry.agent.name == "assistant"
-    assert entry.agent.model == "deepseek/deepseek-v4-flash"
+    assert entry.agent.instructions == "prompt text"
+    assert entry.config_version == 3
+    assert entry.prompt_version_id == "pv-assistant"
     assert not registry.rejected
 
 
-def test_rejects_unsupported_capabilities(tmp_path):
-    settings = _settings(
-        tmp_path,
-        """
-- type_name: sandboxed
-  prompt_key: p
-  model: m
-  sandbox: true
-""",
-        "p: text\n",
+async def test_rejects_unsupported_capabilities():
+    doc = {**ASSISTANT_DOC, "type_name": "sandboxed", "sandbox": True}
+    registry = await build_registry(
+        {"agent-types/sandboxed": (1, doc)},
+        FakePromptResolver({"assistant": "x"}),
     )
-    registry = load_registry(settings)
     assert "sandboxed" in registry.rejected
     with pytest.raises(UnknownAgentTypeError, match="invalid"):
         registry.get("sandboxed")
 
 
-def test_rejects_missing_prompt_key(tmp_path):
-    settings = _settings(
-        tmp_path,
-        """
-- type_name: assistant
-  prompt_key: nope
-  model: m
-""",
-        "assistant: text\n",
+async def test_rejects_key_name_mismatch():
+    registry = await build_registry(
+        {"agent-types/other": (1, ASSISTANT_DOC)},
+        FakePromptResolver({"assistant": "x"}),
     )
-    registry = load_registry(settings)
-    assert "assistant" in registry.rejected
-    assert "prompt_key" in registry.rejected["assistant"]
+    assert "does not match key" in registry.rejected["other"]
 
 
-def test_unknown_type_raises(tmp_path):
-    settings = _settings(tmp_path, "[]", "a: b\n")
-    registry = load_registry(settings)
+async def test_rejects_unresolvable_prompt():
+    registry = await build_registry(
+        {"agent-types/assistant": (1, ASSISTANT_DOC)},
+        FakePromptResolver({}),
+    )
+    assert "prompt resolution failed" in registry.rejected["assistant"]
+
+
+async def test_unknown_type_raises():
+    registry = await build_registry({}, FakePromptResolver({}))
     with pytest.raises(UnknownAgentTypeError, match="Unknown"):
         registry.get("ghost")
 
 
-def test_shipped_config_files_are_valid():
-    settings = Settings(openrouter_api_key="test", _env_file=None)
-    registry = load_registry(settings)
-    assert "assistant" in registry.types
-    assert not registry.rejected
+class FakeConfigClient:
+    def __init__(self):
+        self.versions: dict[str, int] = {"agent-types/assistant": 1}
+        self.docs: dict[str, dict] = {"agent-types/assistant": ASSISTANT_DOC}
+        self.down = False
+        self.list_calls = 0
+
+    async def list_agent_type_versions(self):
+        self.list_calls += 1
+        if self.down:
+            raise ConnectionError("config service down")
+        return dict(self.versions)
+
+    async def get_doc(self, key):
+        if self.down:
+            raise ConnectionError("config service down")
+        return self.versions[key], self.docs[key]
+
+
+async def test_manager_refresh_and_version_caching():
+    config = FakeConfigClient()
+    resolver = FakePromptResolver({"assistant": "v1 prompt"})
+    manager = RegistryManager(config, resolver)
+
+    assert await manager.refresh() is True
+    assert "assistant" in manager.current.types
+    # Same versions → no rebuild.
+    assert await manager.refresh() is False
+    # Version bump → rebuild.
+    config.versions["agent-types/assistant"] = 2
+    assert await manager.refresh() is True
+    assert manager.current.types["assistant"].config_version == 2
+
+
+async def test_manager_keeps_last_good_when_config_down():
+    config = FakeConfigClient()
+    resolver = FakePromptResolver({"assistant": "prompt"})
+    manager = RegistryManager(config, resolver)
+    await manager.refresh()
+    assert "assistant" in manager.current.types
+
+    config.down = True
+    assert await manager.refresh() is False
+    assert "assistant" in manager.current.types  # last-good survives
+
+
+async def test_manager_force_invalidates_prompt_cache():
+    config = FakeConfigClient()
+    resolver = FakePromptResolver({"assistant": "prompt"})
+    manager = RegistryManager(config, resolver)
+    await manager.refresh()
+    assert resolver.invalidations == 0
+    await manager.refresh(force=True)
+    assert resolver.invalidations == 1

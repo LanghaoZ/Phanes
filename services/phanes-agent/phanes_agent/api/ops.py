@@ -17,10 +17,13 @@ async def healthz(request: Request):
         checks["database"] = f"error: {type(exc).__name__}"
         ok = False
 
-    registry = request.app.state.registry
+    registry = request.app.state.registry_manager.current
     checks["agent_types"] = sorted(registry.types.keys())
     if registry.rejected:
         checks["rejected_agent_types"] = dict(registry.rejected)
+    if not registry.types:
+        checks["registry"] = "empty (phanes-config/Phoenix unreachable at load?)"
+        ok = False
 
     checks["phoenix_enabled"] = request.app.state.settings.phoenix_enabled
 

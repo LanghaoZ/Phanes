@@ -1,29 +1,21 @@
 [project]
-name = "phanes-agent"
+name = "phanes-config"
 version = "0.1.0"
-description = "Phanes Agent Layer — thin service on the OpenAI Agents SDK"
+description = "Phanes platform dynamic-config plane — versioned JSON documents"
 requires-python = ">=3.12"
 dependencies = [
-    "openai-agents>=0.19,<0.20",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",
     "pydantic-settings>=2.0.0",
-    "sqlalchemy[asyncio]>=2.0.30",
-    "aiomysql>=0.2.0",
-    "pymysql>=1.1.0",
-    "python-ulid>=2.7.0",
-    "arize-phoenix-otel>=0.9.0",
-    "openinference-instrumentation-openai-agents>=0.1.0",
-    "httpx>=0.28.1",
-    "arize-phoenix-client>=2.13.0",
+    "motor>=3.6.0",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.24.0",
-    "aiosqlite>=0.20.0",
     "httpx>=0.27.0",
+    "mongomock-motor>=0.0.34",
 ]
 
 [tool.uv]
@@ -38,4 +30,4 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["phanes_agent"]
+packages = ["phanes_config"]

@@ -44,9 +44,22 @@ class Settings(BaseSettings):
     log_dir: Path = SERVICE_ROOT / "logs"
     log_retention_days: int = 30
 
-    # AgentType config source — slice 1: local files (phanes-config later).
-    agent_types_file: Path = SERVICE_ROOT / "config" / "agent_types.yaml"
-    prompts_file: Path = SERVICE_ROOT / "config" / "prompts.yaml"
+    # AgentType config source: phanes-config service.
+    config_service_url: str = "http://localhost:8200"
+    config_namespace: str = "phanes-agent"
+    config_poll_seconds: float = 15.0
+
+    # Prompt source: Phoenix Prompts (same Phoenix as the trace UI).
+    # Tag defaults by environment: development pulls `development`,
+    # anything else pulls `production`.
+    prompt_tag: str | None = None
+    prompt_cache_ttl_seconds: float = 300.0
+
+    @property
+    def resolved_prompt_tag(self) -> str:
+        if self.prompt_tag:
+            return self.prompt_tag
+        return "development" if self.app_env == "development" else "production"
 
     @property
     def database_url_sync(self) -> str:

@@ -26,6 +26,12 @@ from .sessions import resolve_session
 logger = logging.getLogger(__name__)
 
 
+class RegistryManagerLike:
+    """Anything exposing the current Registry (RegistryManager or a test stub)."""
+
+    current: Registry
+
+
 def _flush_traces() -> None:
     try:
         from agents.tracing import flush_traces
@@ -38,11 +44,11 @@ def _flush_traces() -> None:
 class RunService:
     def __init__(
         self,
-        registry: Registry,
+        registry_manager: "RegistryManagerLike",
         sessionmaker: async_sessionmaker[AsyncSession],
         settings: Settings,
     ):
-        self._registry = registry
+        self._manager = registry_manager
         self._sessionmaker = sessionmaker
         self._settings = settings
         self._semaphore = asyncio.Semaphore(settings.max_concurrent_runs)
@@ -72,7 +78,8 @@ class RunService:
         source: str | None = None,
         wait: bool = False,
     ) -> RunRow:
-        self._registry.get(agent_type)  # validate up front; raises UnknownAgentTypeError
+        # Validate up front; raises UnknownAgentTypeError
+        self._manager.current.get(agent_type)
 
         async with self._sessionmaker() as db:
             session = await resolve_session(
@@ -130,7 +137,7 @@ class RunService:
                 async with self._semaphore:
                     await self._mark(run_id, status="running", started=True)
                     try:
-                        registered = self._registry.get(agent_type)
+                        registered = self._manager.current.get(agent_type)
                         run_config = RunConfig(
                             model_provider=self._model_provider,
                             workflow_name=agent_type,
@@ -140,6 +147,8 @@ class RunService:
                                 "run_id": run_id,
                                 "origin": "api",
                                 "source": source or "",
+                                "config_version": registered.config_version,
+                                "prompt_version": registered.prompt_version_id,
                             },
                         )
                         result = await asyncio.wait_for(
