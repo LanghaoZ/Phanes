@@ -7,9 +7,12 @@ validate their own configs).
 
 ## Run (dev)
 
+In Docker (repo root): `docker compose up -d phanes-config` (MongoDB comes
+from `deploy/infra.dev.yml`). On the host for hot reload:
+
 ```bash
+docker compose -f deploy/infra.dev.yml up -d mongo
 cd services/phanes-config
-docker compose up -d          # MongoDB
 uv sync
 uv run uvicorn phanes_config.main:app --port 8200
 ```

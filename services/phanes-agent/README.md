@@ -12,34 +12,26 @@ lives in Phoenix Prompts (tag-deployed: dev pulls `development`, prod
 pulls `production`). Still pending in later slices: sandbox, multi-agent,
 conversations.
 
-## Quickstart (dev, everything local)
+## Quickstart
+
+**Full stack in Docker** (repo root; PHANES_API_KEY in shell env):
 
 ```bash
+docker compose -f deploy/infra.dev.yml up -d     # shared dev infra (once)
+docker compose up -d --build                     # config + phoenix + agent
+docker compose --profile seed run --rm seed      # first time only
+```
+
+**Hybrid dev loop** (infra + siblings in Docker, THIS service on the host
+for hot reload):
+
+```bash
+docker compose -f deploy/infra.dev.yml up -d
+docker compose up -d phanes-config phoenix
 cd services/phanes-agent
-
-# 1. Platform MySQL (shared instance from the phanes-task compose) + schema
-docker compose -f ../phanes-task/docker-compose.yml up -d mysql
-docker exec phanes-mysql mysql -uroot -pphanes_root \
-  -e "CREATE DATABASE IF NOT EXISTS phanes_agent CHARACTER SET utf8mb4; \
-      GRANT ALL PRIVILEGES ON phanes_agent.* TO 'phanes'@'%'; FLUSH PRIVILEGES;"
-
-# 2. Phoenix (trace debug UI + prompt management)
-docker compose up -d
-
-# 3. phanes-config (dynamic config plane) + its MongoDB
-docker compose -f ../phanes-config/docker-compose.yml up -d
-(cd ../phanes-config && uv sync && \
-  nohup uv run uvicorn phanes_config.main:app --port 8200 >/dev/null 2>&1 &)
-
-# 4. Environment (PHANES_API_KEY already lives in ~/.zshrc)
-cp .env.example .env
-
-# 5. Seed the assistant type (Phoenix prompt + config doc; idempotent)
-uv sync
-uv run python scripts/seed_dev.py
-
-# 6. Run (single worker — required, in-process state)
-uv run uvicorn phanes_agent.main:app --port 8100
+cp .env.example .env        # PHANES_API_KEY already lives in ~/.zshrc
+uv sync && uv run python scripts/seed_dev.py
+uv run uvicorn phanes_agent.main:app --port 8100   # single worker — required
 ```
 
 ## Changing config / prompts at runtime

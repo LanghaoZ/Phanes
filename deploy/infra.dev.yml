@@ -1,0 +1,99 @@
+# Phanes shared DEV infrastructure — databases & messaging. DEV-ONLY.
+#
+# Ownership rule: these are MACHINE-level shared components, not project
+# services. On Atlas (prod) they run as independently-managed containers
+# and are NOT orchestrated by any Phanes compose file — app services reach
+# them via env-var endpoints. This file exists so a dev machine (or a
+# rebuilt server) can provision equivalent infra in one command:
+#
+#   docker compose -f deploy/infra.dev.yml up -d
+#
+# Definitions mirror the previously scattered per-service compose files
+# (phanes-task's mysql/redis/kafka; phanes-config's mongo). If those
+# containers are already running on your machine, keep using them — this
+# file creates the same names/creds and will simply conflict-fail rather
+# than duplicate.
+#
+# mysql-init.sql provisions ALL Phanes schemas (phanes_task, phanes_agent)
+# on first boot of a fresh volume.
+
+name: phanes-infra
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: phanes-mysql
+    restart: unless-stopped
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: phanes_root
+      MYSQL_DATABASE: phanes_task
+      MYSQL_USER: phanes
+      MYSQL_PASSWORD: phanes_dev
+    volumes:
+      - phanes-mysql-data:/var/lib/mysql
+      - ./mysql-init.sql:/docker-entrypoint-initdb.d/mysql-init.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mongo:
+    image: mongo:7
+    container_name: phanes-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - phanes-mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ping: 1})"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: phanes-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - phanes-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kafka:
+    image: apache/kafka:latest
+    container_name: phanes-kafka
+    restart: unless-stopped
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+    volumes:
+      - phanes-kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "/opt/kafka/bin/kafka-broker-api-versions.sh", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  phanes-mysql-data:
+  phanes-mongo-data:
+  phanes-redis-data:
+  phanes-kafka-data:
