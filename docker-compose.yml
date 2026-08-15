@@ -1,0 +1,106 @@
+# Phanes PROJECT services — the containers this project owns and deploys.
+#
+# Databases/messaging are deliberately NOT here (ownership rule): they are
+# machine-level shared infra. Dev: `docker compose -f deploy/infra.dev.yml
+# up -d` first (or keep your existing containers). Prod (Atlas): the
+# already-running MySQL/Mongo containers, reached via env overrides.
+#
+# Bring-up:
+#   docker compose up -d --build
+#   docker compose --profile seed run --rm seed   # first time only
+#
+# PHANES_API_KEY must be in the shell env (or a compose-level .env file).
+# App services reach host-level infra via host.docker.internal (mapped to
+# the host gateway for Linux compatibility).
+
+name: phanes
+
+services:
+  # NOTE on platform pins: the `cryptography` Rust native module SIGILLs in
+  # arm64 containers on this dev Mac (same root cause as the Phoenix arm64
+  # crash — it bundles cryptography too). amd64 is NATIVE on Atlas (x86_64)
+  # and runs under Rosetta on the Mac; the dev hot path is host uv anyway.
+  phanes-config:
+    build: ./services/phanes-config
+    platform: linux/amd64
+    container_name: phanes-config
+    restart: unless-stopped
+    ports:
+      - "8200:8200"
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      MONGO_URL: mongodb://host.docker.internal:27017
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./services/phanes-config/logs:/app/logs
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8200/healthz', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  phoenix:
+    # Pinned version + platform: arm64 builds SIGILL on Apple Silicon as of
+    # 2026-08; amd64 under Rosetta runs clean. Revisit on version bumps.
+    # Project-owned (only Phanes uses it); its volume holds prompt versions
+    # and traces — include in backups eventually.
+    image: arizephoenix/phoenix:19.12
+    platform: linux/amd64
+    container_name: phanes-phoenix
+    restart: unless-stopped
+    environment:
+      PHOENIX_WORKING_DIR: /mnt/data
+    ports:
+      - "6006:6006" # UI + OTLP HTTP collector
+      - "4317:4317" # OTLP gRPC collector
+    volumes:
+      - phanes-phoenix-data:/mnt/data
+
+  phanes-agent:
+    build: ./services/phanes-agent
+    platform: linux/amd64
+    container_name: phanes-agent
+    restart: unless-stopped
+    ports:
+      - "8100:8100"
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      PHANES_API_KEY: ${PHANES_API_KEY:-}
+      DATABASE_URL: mysql+aiomysql://phanes:phanes_dev@host.docker.internal:3306/phanes_agent
+      CONFIG_SERVICE_URL: http://phanes-config:8200
+      PHOENIX_COLLECTOR_ENDPOINT: http://phoenix:6006
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./services/phanes-agent/logs:/app/logs
+    depends_on:
+      phanes-config:
+        condition: service_healthy
+      phoenix:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8100/healthz', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # One-shot seeding (idempotent): Phoenix prompt + AgentType config doc.
+  #   docker compose --profile seed run --rm seed
+  seed:
+    profiles: ["seed"]
+    build: ./services/phanes-agent
+    platform: linux/amd64
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      CONFIG_SERVICE_URL: http://phanes-config:8200
+      PHOENIX_COLLECTOR_ENDPOINT: http://phoenix:6006
+    command: ["uv", "run", "--no-sync", "python", "scripts/seed_dev.py"]
+    depends_on:
+      phanes-config:
+        condition: service_healthy
+      phoenix:
+        condition: service_started
+
+volumes:
+  phanes-phoenix-data:
