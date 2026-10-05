@@ -2,26 +2,24 @@ syntax = "proto3";
 
 package phanes.task;
 
-option csharp_namespace = "Phanes.Task.Sdk";
-
-// TaskType identifies which handler should process an event.
-// Add new task types here as the system grows; zero value is reserved.
-enum TaskType {
-  TASK_TYPE_UNSPECIFIED = 0;
-}
+option csharp_namespace = "Phanes.Task.Contracts";
 
 // TaskEvent is the unit of work dispatched to a task actor via Kafka.
 // Partition and Offset are Kafka transport metadata and are NOT part of
 // this schema — they are attached by the consumer after deserialization.
+//
+// task_type is a string of the form "<owner>.<name>", e.g. "phanes.dummy"
+// for first-party tasks or "openinsights.data_ingestion" for plugin tasks.
+// The framework uses task_type to look up the registered ITask implementation.
 message TaskEvent {
-  TaskType            task_type = 1;
+  string              task_type = 1;
   string              task_id   = 2;
   string              event_id  = 3;
   string              content   = 4;
   map<string, string> context   = 5;
 }
 
-// TaskResult is returned by ITaskHandler.ExecuteAsync after processing
+// TaskResult is returned by ITask.ExecuteAsync after processing
 // a single TaskEvent.
 message TaskResult {
   string    task_id        = 1;

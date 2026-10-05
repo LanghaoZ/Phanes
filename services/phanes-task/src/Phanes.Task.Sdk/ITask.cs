@@ -1,13 +1,19 @@
+using Phanes.Task.Contracts;
+
 namespace Phanes.Task.Sdk;
 
 /// <summary>
-/// Pluggable task handler interface. Implement this to define a task type.
+/// Pluggable task interface. Implement this to define a task type.
 /// External plugin assemblies reference Phanes.Task.Sdk only and implement this interface.
-/// Handlers are discovered by convention scanning — no explicit registration required.
+/// Implementations are discovered by convention scanning — no explicit registration required.
+///
+/// Naming convention for TaskType: "&lt;owner&gt;.&lt;name&gt;".
+/// First-party tasks use the "phanes." prefix (see PhanesNativeTaskTypes).
+/// Plugin tasks use their service's prefix, e.g. "openinsights.data_ingestion".
 /// </summary>
-public interface ITaskHandler
+public interface ITask
 {
-    TaskType TaskType { get; }
+    string TaskType { get; }
 
     /// <summary>
     /// Called once per task type at startup, before any execution begins.
