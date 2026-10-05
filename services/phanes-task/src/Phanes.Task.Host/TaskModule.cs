@@ -1,6 +1,7 @@
 using System.Reflection;
 using Autofac;
 using Phanes.Task.Core.Actor;
+using Phanes.Task.Core.Consumer;
 using Phanes.Task.Core.Registry;
 using Phanes.Task.Tasks;
 
@@ -27,6 +28,10 @@ internal sealed class TaskModule : Autofac.Module
 
         builder.RegisterType<ActorRegistry>()
             .As<IActorRegistry>()
+            .SingleInstance();
+
+        builder.RegisterType<KafkaTaskEventSource>()
+            .As<ITaskEventSource>()
             .SingleInstance();
     }
 }

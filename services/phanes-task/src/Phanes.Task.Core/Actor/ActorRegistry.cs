@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Phanes.Task.Core.Options;
@@ -7,13 +6,15 @@ using Phanes.Task.Core.Registry;
 namespace Phanes.Task.Core.Actor;
 
 /// <summary>
-/// Default IActorRegistry implementation. Holds one ITaskActor per task_id in a
-/// ConcurrentDictionary. Actors are created lazily on first event arrival and
-/// evicted when completed or idle by the periodic cleanup scan.
+/// Default IActorRegistry. Plain dictionaries, no locks — see the threading
+/// note on IActorRegistry.
 /// </summary>
 public sealed class ActorRegistry : IActorRegistry
 {
-    private readonly ConcurrentDictionary<string, ActorEntry> _actors = new();
+    private static readonly TimeSpan ShutdownTimeout = TimeSpan.FromSeconds(30);
+
+    private readonly Dictionary<string, Dictionary<string, ActorEntry>> _actors = new();
+    private readonly CancellationTokenSource _shutdown = new();
     private readonly ITaskRegistry _taskRegistry;
     private readonly WorkerOptions _worker;
     private readonly ILoggerFactory _loggerFactory;
@@ -32,46 +33,105 @@ public sealed class ActorRegistry : IActorRegistry
 
     public ITaskActor GetOrCreateActor(string taskId, string taskType)
     {
-        return _actors.GetOrAdd(taskId, id => CreateAndStart(id, taskType)).Actor;
+        if (!_actors.TryGetValue(taskType, out var byId))
+        {
+            byId = new Dictionary<string, ActorEntry>();
+            _actors[taskType] = byId;
+        }
+
+        if (byId.TryGetValue(taskId, out var existing))
+        {
+            if (existing.Actor.IsRunning)
+            {
+                return existing.Actor;
+            }
+            byId.Remove(taskId); // retired: replace it
+        }
+
+        var entry = CreateAndStart(taskId, taskType);
+        byId[taskId] = entry;
+        return entry.Actor;
     }
 
     public int CleanupCompletedActors()
     {
         var removed = 0;
-        foreach (var (taskId, entry) in _actors)
+        List<string>? emptyTypes = null;
+
+        foreach (var (taskType, byId) in _actors)
         {
-            if (entry.Actor.IsCompleted || entry.Actor.IsIdle)
+            List<string>? retired = null;
+            foreach (var (taskId, entry) in byId)
             {
-                if (_actors.TryRemove(taskId, out var taken))
+                if (entry.Actor.IsCompleted)
                 {
-                    taken.Cts.Cancel();
-                    removed++;
+                    (retired ??= new List<string>()).Add(taskId);
                 }
             }
+            if (retired is not null)
+            {
+                foreach (var taskId in retired)
+                {
+                    byId.Remove(taskId);
+                }
+                removed += retired.Count;
+            }
+            if (byId.Count == 0)
+            {
+                (emptyTypes ??= new List<string>()).Add(taskType);
+            }
         }
+
+        if (emptyTypes is not null)
+        {
+            foreach (var taskType in emptyTypes)
+            {
+                _actors.Remove(taskType);
+            }
+        }
+
         if (removed > 0)
         {
-            _logger.LogDebug("Evicted {Count} actors during cleanup scan.", removed);
+            _logger.LogDebug("Removed {Count} retired actors during cleanup scan.", removed);
         }
         return removed;
     }
 
     public int RunningCount(string taskType)
     {
-        // Walking-skeleton stub — accurate per-type count requires tracking
-        // task_type on the entry; deferred until we actually need it.
-        return _actors.Count;
+        if (!_actors.TryGetValue(taskType, out var byId))
+        {
+            return 0;
+        }
+        var count = 0;
+        foreach (var entry in byId.Values)
+        {
+            if (entry.Actor.IsRunning)
+            {
+                count++;
+            }
+        }
+        return count;
     }
 
     public async global::System.Threading.Tasks.Task CleanupAsync()
     {
-        foreach (var (_, entry) in _actors)
-        {
-            entry.Cts.Cancel();
-        }
-        await global::System.Threading.Tasks.Task.WhenAll(
-            _actors.Values.Select(e => e.RunTask));
+        _shutdown.Cancel();
+
+        var runTasks = _actors.Values.SelectMany(byId => byId.Values).Select(e => e.RunTask).ToArray();
         _actors.Clear();
+        if (runTasks.Length == 0)
+        {
+            return;
+        }
+
+        var all = global::System.Threading.Tasks.Task.WhenAll(runTasks);
+        if (await global::System.Threading.Tasks.Task.WhenAny(all, global::System.Threading.Tasks.Task.Delay(ShutdownTimeout)) != all)
+        {
+            _logger.LogWarning(
+                "{Count} actors did not stop within {Timeout}s; abandoning them.",
+                runTasks.Count(t => !t.IsCompleted), ShutdownTimeout.TotalSeconds);
+        }
     }
 
     private ActorEntry CreateAndStart(string taskId, string taskType)
@@ -82,20 +142,17 @@ public sealed class ActorRegistry : IActorRegistry
                 $"No ITask registered for task_type '{taskType}' (task_id '{taskId}').");
         }
 
-        var cts = new CancellationTokenSource();
         var actor = new TaskActor(
             taskId,
+            taskType,
             registration,
-            channelCapacity: 64,
+            mailboxCapacity: _worker.ActorMailboxCapacity,
             idleTimeout: TimeSpan.FromSeconds(_worker.ActorIdleTimeoutSeconds),
             logger: _loggerFactory.CreateLogger<TaskActor>());
 
-        var runTask = global::System.Threading.Tasks.Task.Run(() => actor.RunAsync(cts.Token));
-        return new ActorEntry(actor, cts, runTask);
+        var runTask = global::System.Threading.Tasks.Task.Run(() => actor.RunAsync(_shutdown.Token));
+        return new ActorEntry(actor, runTask);
     }
 
-    private sealed record ActorEntry(
-        ITaskActor Actor,
-        CancellationTokenSource Cts,
-        global::System.Threading.Tasks.Task RunTask);
+    private sealed record ActorEntry(ITaskActor Actor, global::System.Threading.Tasks.Task RunTask);
 }
