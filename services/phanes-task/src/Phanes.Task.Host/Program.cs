@@ -1,5 +1,7 @@
 using Autofac;
 using Autofac.Extensions.DependencyInjection;
+using Phanes.Task.Core.Consumer;
+using Phanes.Task.Core.Options;
 using Phanes.Task.Host;
 using Serilog;
 using Serilog.Formatting.Compact;
@@ -16,19 +18,27 @@ try
     builder.Host.UseServiceProviderFactory(new AutofacServiceProviderFactory());
     builder.Host.ConfigureContainer<ContainerBuilder>(b => b.RegisterModule<TaskModule>());
 
-    // Configure Serilog from appsettings.json + environment, with file and console sinks.
+    // Configure Serilog from appsettings.json + environment.
+    // Console: plain text for human readability during dev.
+    // File:    structured JSON for log shipping / grep / jq.
     builder.Host.UseSerilog((ctx, services, cfg) => cfg
         .ReadFrom.Configuration(ctx.Configuration)
         .ReadFrom.Services(services)
         .Enrich.FromLogContext()
-        .WriteTo.Console(new CompactJsonFormatter())
+        .WriteTo.Console(outputTemplate:
+            "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj} {Properties:j}{NewLine}{Exception}")
         .WriteTo.File(
             formatter: new CompactJsonFormatter(),
             path: "logs/phanes-task-.log",
             rollingInterval: RollingInterval.Day,
             retainedFileCountLimit: 30));
 
-    // TODO: register framework services (TaskLoop, Redis DAL) via TaskModule.cs
+    // Framework services (TaskRegistry, ActorRegistry, ...) are registered
+    // via TaskModule on the Autofac container. TaskLoop is added here as a
+    // hosted background service so the host can drive its lifecycle.
+    builder.Services.Configure<TaskOptions>(
+        builder.Configuration.GetSection("PhanesTask"));
+    builder.Services.AddHostedService<TaskLoop>();
 
     builder.Services.AddEndpointsApiExplorer();
 
