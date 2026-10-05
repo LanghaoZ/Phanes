@@ -1,8 +1,12 @@
+# Local development stack only.
+# Production components run on the personal server (192.168.0.21).
+# Start with: docker compose up -d
 services:
 
   kafka:
     image: apache/kafka:latest
     container_name: phanes-kafka
+    restart: unless-stopped
     ports:
       - "9092:9092"
     environment:
@@ -16,7 +20,7 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_LOG_DIRS: /var/lib/kafka/data
     volumes:
-      - kafka-data:/var/lib/kafka/data
+      - phanes-kafka-data:/var/lib/kafka/data
     healthcheck:
       test: ["CMD", "/opt/kafka/bin/kafka-broker-api-versions.sh", "--bootstrap-server", "localhost:9092"]
       interval: 10s
@@ -26,10 +30,11 @@ services:
   redis:
     image: redis:7-alpine
     container_name: phanes-redis
+    restart: unless-stopped
     ports:
       - "6379:6379"
     volumes:
-      - redis-data:/data
+      - phanes-redis-data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -39,6 +44,7 @@ services:
   mysql:
     image: mysql:8.0
     container_name: phanes-mysql
+    restart: unless-stopped
     ports:
       - "3306:3306"
     environment:
@@ -47,7 +53,7 @@ services:
       MYSQL_USER: phanes
       MYSQL_PASSWORD: phanes_dev
     volumes:
-      - mysql-data:/var/lib/mysql
+      - phanes-mysql-data:/var/lib/mysql
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 10s
@@ -55,6 +61,6 @@ services:
       retries: 5
 
 volumes:
-  kafka-data:
-  redis-data:
-  mysql-data:
+  phanes-kafka-data:
+  phanes-redis-data:
+  phanes-mysql-data:
