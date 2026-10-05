@@ -1,5 +1,3 @@
-using Phanes.Task.Sdk;
-
 namespace Phanes.Task.Core.Actor;
 
 /// <summary>
@@ -10,9 +8,9 @@ public interface IActorRegistry
 {
     /// <summary>
     /// Return the existing actor for taskId, or create and start a new one.
-    /// Throws if the taskType has no registered ITaskHandler.
+    /// Throws if the taskType has no registered ITask implementation.
     /// </summary>
-    ITaskActor GetOrCreateActor(string taskId, TaskType taskType);
+    ITaskActor GetOrCreateActor(string taskId, string taskType);
 
     /// <summary>
     /// Remove completed and idle actors from the registry.
@@ -24,7 +22,7 @@ public interface IActorRegistry
     /// <summary>
     /// Count of currently running actors for a given task type.
     /// </summary>
-    int RunningCount(TaskType taskType);
+    int RunningCount(string taskType);
 
     /// <summary>
     /// Graceful shutdown: stop all running actors and drain their channels.

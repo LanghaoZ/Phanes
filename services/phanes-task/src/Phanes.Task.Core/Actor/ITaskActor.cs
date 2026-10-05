@@ -5,7 +5,7 @@ namespace Phanes.Task.Core.Actor;
 /// <summary>
 /// Represents a running actor managing the lifecycle of one task instance.
 /// One actor exists per task_id. The actor owns a bounded Channel&lt;TaskEvent&gt;
-/// and drains it sequentially, delegating each event to its ITaskHandler.
+/// and drains it sequentially, delegating each event to its ITask implementation.
 /// </summary>
 public interface ITaskActor
 {
