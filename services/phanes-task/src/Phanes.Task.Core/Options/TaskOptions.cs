@@ -1,14 +1,13 @@
 namespace Phanes.Task.Core.Options;
 
-/// <summary>
-/// Root configuration for the Phanes Task service. Bound from the
-/// "PhanesTask" section of appsettings.
-///
-/// Sub-option classes are added here as the framework's subsystems
-/// (Worker, Watermark, Redis, MySQL, Plugins, ...) come online.
-/// </summary>
+using System.Threading.Tasks;
+
+/// <summary>Root configuration, bound from the "PhanesTask" section.</summary>
 public sealed class TaskOptions
 {
-    public KafkaOptions  Kafka  { get; init; } = new();
-    public WorkerOptions Worker { get; init; } = new();
+    public KafkaOptions      Kafka      { get; set; } = new();
+    public WorkerOptions     Worker     { get; set; } = new();
+    public RedisOptions      Redis      { get; set; } = new();
+    public DispatcherOptions Dispatcher { get; set; } = new();
+    public Phanes.Task.Core.Configuration.PhanesConfigOptions ConfigService { get; set; } = new();
 }

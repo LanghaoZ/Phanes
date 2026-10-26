@@ -1,32 +1,43 @@
 using Microsoft.Extensions.Logging.Abstractions;
+using Phanes.Task.Contracts;
 using Phanes.Task.Core.Actor;
 using Phanes.Task.Core.Consumer;
-using Phanes.Task.Core.Options;
+using Phanes.Task.Core.Dispatch;
+using Phanes.Task.Core.Status;
+using Phanes.Task.Core.Watermark;
 using static CoreTests.TestUtil;
 
 namespace CoreTests;
 
 public class TaskLoopTests
 {
+    private const string Type = "test.fake";
+
     private sealed class Harness : IAsyncDisposable
     {
+        public ExecutionLog Log { get; } = new();
         public FakeEventSource Source { get; } = new();
-        public CountingRegistry Registry { get; }
+        public InMemoryExecutionStatusStore Status { get; } = new();
+        public FakePublisher Publisher { get; } = new();
+        public WatermarkManager Watermark { get; }
+        public FakeScopeFactory Scopes { get; }
+        public ActorRegistry Registry { get; }
         public TaskLoop Loop { get; }
 
-        public Harness(params FakeTask[] tasks)
+        public Harness(IActorRegistry? registryOverride = null)
         {
-            var options = Microsoft.Extensions.Options.Options.Create(new TaskOptions
-            {
-                Kafka = new KafkaOptions { PollTimeoutMs = 5 },
-                Worker = new WorkerOptions { ActorScanIntervalSeconds = 0.01 },
-            });
-            Registry = new CountingRegistry(
-                new ActorRegistry(new FakeTaskRegistry(tasks), options, NullLoggerFactory.Instance));
-            Loop = new TaskLoop(options, Source, Registry, NullLogger<TaskLoop>.Instance);
+            var options = Options(worker: FastWorker());
+            Watermark = new WatermarkManager(options, NullLogger<WatermarkManager>.Instance);
+            Scopes = new FakeScopeFactory(Log, Type);
+            Registry = new ActorRegistry(new FakeTypeRegistry(Type), Scopes, Status,
+                new TaskDispatcher(Publisher, options, NullLogger<TaskDispatcher>.Instance),
+                Watermark, options, NullLoggerFactory.Instance);
+            Loop = new TaskLoop(options, Source, registryOverride ?? Registry, Watermark, Status, NullLogger<TaskLoop>.Instance);
         }
 
         public Task StartAsync() => Loop.StartAsync(default);
+
+        public long Position(int partition = 0) => Source.Positions.TryGetValue(partition, out var p) ? p : -1;
 
         public async ValueTask DisposeAsync()
         {
@@ -35,168 +46,156 @@ public class TaskLoopTests
         }
     }
 
-    /// <summary>Pass-through registry that counts housekeeping scans.</summary>
-    private sealed class CountingRegistry(IActorRegistry inner) : IActorRegistry
-    {
-        private int _scans;
-        public int Scans => Volatile.Read(ref _scans);
-
-        public ITaskActor GetOrCreateActor(string taskId, string taskType)
-            => inner.GetOrCreateActor(taskId, taskType);
-
-        public int CleanupCompletedActors()
-        {
-            Interlocked.Increment(ref _scans);
-            return inner.CleanupCompletedActors();
-        }
-
-        public int RunningCount(string taskType) => inner.RunningCount(taskType);
-        public Task CleanupAsync() => inner.CleanupAsync();
-    }
-
     [Fact]
-    public async Task Dispatches_events_to_tasks_and_stores_their_offsets()
+    public async Task Dispatches_events_and_stores_only_the_contiguous_completed_prefix()
     {
-        var task = new FakeTask();
-        await using var h = new Harness(task);
+        await using var h = new Harness();
         await h.StartAsync();
 
         h.Source.Push(Event("t1", "e0"));
         h.Source.Push(Event("t2", "e1"));
         h.Source.Push(Event("t1", "e2"));
 
-        await Eventually(() => task.Executed.Count == 3, "all events executed");
-        await Eventually(() => h.Source.StoredOffsets.Length == 3, "all offsets stored");
-        Assert.Equal(new long[] { 0, 1, 2 }, h.Source.StoredOffsets);
+        await Eventually(() => h.Log.Executed.Count == 3, "all events executed");
+        await Eventually(() => h.Position() == 3, "position stored past all three");
+        Assert.All(new[] { ("t1", "e0"), ("t2", "e1"), ("t1", "e2") },
+            async p => Assert.Equal(ExecutionStatus.Completed, await StatusOf(h.Status, Type, p.Item1, p.Item2)));
     }
 
     [Fact]
-    public async Task Skips_undecodable_and_incomplete_messages_without_stalling()
+    public async Task Position_waits_for_a_slow_event_in_the_middle()
     {
-        var task = new FakeTask();
-        await using var h = new Harness(task);
+        await using var h = new Harness();
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        h.Log.OnExecute = async (_, evt, _) => { if (evt.EventId == "slow") await release.Task; return null; };
         await h.StartAsync();
 
-        h.Source.Push(new byte[] { 0x0A, 0x05, 0x01 });          // truncated proto
-        h.Source.Push((byte[]?)null);                             // empty
-        h.Source.Push(Event(taskId: "", eventId: "no-task-id"));  // missing field
+        h.Source.Push(Event("fast1", "a"));
+        h.Source.Push(Event("slow", "slow"));
+        h.Source.Push(Event("fast2", "b"));
+
+        await Eventually(() => h.Log.Executed.Count == 2, "fast events executed");
+        await Task.Delay(50);
+        Assert.Equal(1, h.Position()); // only offset 0 is committable
+
+        release.SetResult();
+        await Eventually(() => h.Position() == 3, "gap filled, position advanced");
+    }
+
+    [Fact]
+    public async Task Skips_undecodable_incomplete_and_unknown_type_messages_without_stalling()
+    {
+        await using var h = new Harness();
+        await h.StartAsync();
+
+        h.Source.Push(new byte[] { 0x0A, 0x05, 0x01 });                        // truncated proto
+        h.Source.Push((byte[]?)null);                                          // empty
+        h.Source.Push(Event(taskId: "", eventId: "no-id"));                    // missing field
+        h.Source.Push(Event("t1", "orphan", taskType: "not.registered"));      // unknown type
         h.Source.Push(Event("t1", "good"));
 
-        await Eventually(() => task.Executed.Contains("good"), "valid event executed");
-        await Eventually(() => h.Source.StoredOffsets.Length == 4, "every offset stored");
-        Assert.Equal(new[] { "good" }, task.Executed.ToArray());
+        await Eventually(() => h.Log.EventIds.Contains("good"), "valid event executed");
+        await Eventually(() => h.Position() == 5, "every offset released");
+        Assert.Equal(["good"], h.Log.EventIds.ToArray());
+        Assert.Equal(ExecutionStatus.Failed, await StatusOf(h.Status, "not.registered", "t1", "orphan"));
     }
 
     [Fact]
-    public async Task Skips_events_for_unregistered_task_types()
+    public async Task Replayed_terminal_event_is_skipped_and_received_is_recorded_for_new_ones()
     {
-        var task = new FakeTask();
-        await using var h = new Harness(task);
+        await using var h = new Harness();
+        await h.Status.TrySetAsync(Type, "t1", "done", ExecutionStatus.Completed);
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        h.Log.OnExecute = async (_, _, _) => { await gate.Task; return null; };
         await h.StartAsync();
 
-        h.Source.Push(Event("t1", "orphan", taskType: "not.registered"));
-        h.Source.Push(Event("t1", "good"));
+        h.Source.Push(Event("t1", "done"));
+        h.Source.Push(Event("t1", "fresh"));
 
-        await Eventually(() => task.Executed.Contains("good"), "valid event executed");
-        Assert.Equal(new[] { "good" }, task.Executed.ToArray());
+        await Eventually(() => h.Status.GetEventsAsync(Type, "t1").Result.Any(e => e.EventId == "fresh"), "fresh event recorded");
+        var fresh = (await h.Status.GetEventsAsync(Type, "t1")).Single(e => e.EventId == "fresh");
+        Assert.True(fresh.Status is ExecutionStatus.Received or ExecutionStatus.Processing);
+        gate.SetResult();
+        await Eventually(() => h.Position() == 2, "both offsets released");
+        Assert.Equal(["fresh"], h.Log.EventIds.ToArray());
     }
 
     [Fact]
-    public async Task Events_for_a_task_whose_actor_keeps_retiring_are_all_delivered()
+    public async Task Kill_marks_the_task_cancels_its_actor_and_drops_later_events()
     {
-        // Finished after every event: each event meets a retired (or retiring)
-        // actor and must be delivered through the recreate path.
-        var task = new FakeTask { Finished = () => true };
-        await using var h = new Harness(task);
+        await using var h = new Harness();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        h.Log.OnExecute = async (_, _, ct) => { started.TrySetResult(); await Task.Delay(Timeout.Infinite, ct); return null; };
         await h.StartAsync();
 
-        for (var i = 0; i < 50; i++)
-        {
-            h.Source.Push(Event("t1", $"e{i}"));
-        }
+        h.Source.Push(Event("victim", "running"));
+        await started.Task.WaitAsync(Patience);
 
-        await Eventually(() => task.Executed.Count == 50, "all events executed");
-        Assert.Equal(Enumerable.Range(0, 50).Select(i => $"e{i}"), task.Executed.ToArray());
-        Assert.Equal(1, task.MaxConcurrency);
-    }
+        h.Source.Push(new TaskEvent { TaskType = Type, TaskId = "victim", EventId = "k", Kind = TaskEventKind.Kill });
+        h.Source.Push(Event("victim", "after-kill"));
 
-    /// <summary>
-    /// Hands out an actor that has already retired on the first call — the
-    /// window where an actor retires between GetOrCreateActor and the enqueue.
-    /// </summary>
-    private sealed class StaleFirstRegistry(ITaskActor stale, ITaskActor live) : IActorRegistry
-    {
-        private int _calls;
-        public int Calls => Volatile.Read(ref _calls);
-
-        public ITaskActor GetOrCreateActor(string taskId, string taskType)
-            => Interlocked.Increment(ref _calls) == 1 ? stale : live;
-
-        public int CleanupCompletedActors() => 0;
-        public int RunningCount(string taskType) => 0;
-        public Task CleanupAsync() => Task.CompletedTask;
+        await Eventually(() => h.Position() == 3, "all three offsets released");
+        Assert.True(await h.Status.IsKilledAsync(Type, "victim"));
+        Assert.Equal(ExecutionStatus.Killed, await StatusOf(h.Status, Type, "victim", "running"));
+        Assert.Equal(ExecutionStatus.Killed, await StatusOf(h.Status, Type, "victim", "after-kill"));
+        Assert.Empty(h.Log.Executed); // the killed run never finished; "after-kill" never started
     }
 
     [Fact]
-    public async Task Event_rejected_by_an_actor_that_retired_mid_dispatch_is_redelivered_to_a_fresh_one()
+    public async Task Events_from_a_killed_producer_are_dropped()
     {
-        var task = new FakeTask();
-        var registration = new Phanes.Task.Core.Registry.TaskRegistration(task, new FakeContext());
-        TaskActor NewActor() => new(
-            "t1", task.TaskType, registration, 8, TimeSpan.FromMinutes(5), NullLogger<TaskActor>.Instance);
-
-        var stale = NewActor();
-        using (var cancelled = new CancellationTokenSource())
-        {
-            cancelled.Cancel();
-            await stale.RunAsync(cancelled.Token);
-        }
-        Assert.False(stale.IsRunning);
-
-        var live = NewActor();
-        using var liveCts = new CancellationTokenSource();
-        var liveRun = live.RunAsync(liveCts.Token);
-
-        var registry = new StaleFirstRegistry(stale, live);
-        var source = new FakeEventSource();
-        var options = Microsoft.Extensions.Options.Options.Create(new TaskOptions
-        {
-            Kafka = new KafkaOptions { PollTimeoutMs = 5 },
-        });
-        using var loop = new TaskLoop(options, source, registry, NullLogger<TaskLoop>.Instance);
-        await loop.StartAsync(default);
-
-        source.Push(Event("t1", "e0"));
-
-        await Eventually(() => task.Executed.Contains("e0"), "event redelivered and executed");
-        Assert.Equal(2, registry.Calls);
-
-        await loop.StopAsync(default).WaitAsync(Patience);
-        liveCts.Cancel();
-        await liveRun.WaitAsync(Patience);
-    }
-
-    [Fact]
-    public async Task Runs_actor_housekeeping_on_the_loop()
-    {
-        await using var h = new Harness(new FakeTask());
+        await using var h = new Harness();
+        await h.Status.MarkKilledAsync(Type, "producer");
         await h.StartAsync();
 
-        await Eventually(() => h.Registry.Scans >= 2, "cleanup scans ran");
+        var child = Event("child", "c0");
+        child.ProducerTaskId = "producer";
+        h.Source.Push(child);
+        h.Source.Push(Event("other", "o0"));
+
+        await Eventually(() => h.Log.EventIds.Contains("o0"), "unrelated event executed");
+        await Eventually(() => h.Position() == 2, "both released");
+        Assert.Equal(["o0"], h.Log.EventIds.ToArray());
+        Assert.Equal(ExecutionStatus.Killed, await StatusOf(h.Status, Type, "child", "c0"));
+    }
+
+    [Fact]
+    public async Task Self_chained_follow_ups_flow_back_through_the_publisher()
+    {
+        await using var h = new Harness();
+        h.Log.OnExecute = (exec, evt, _) =>
+        {
+            var n = int.Parse(evt.Content);
+            var r = Phanes.Task.Sdk.TaskResults.Ok(exec);
+            if (n > 0) r.NextEvents.Add(Phanes.Task.Sdk.TaskResults.Continue(exec, (n - 1).ToString()));
+            return Task.FromResult<TaskResult?>(r);
+        };
+        await h.StartAsync();
+
+        h.Source.Push(Event("count", "start", content: "2"));
+        await Eventually(() => h.Publisher.Published.Count == 1, "first follow-up published");
+        // The fake publisher is not wired back into the source; feed it manually like Kafka would.
+        var hop1 = h.Publisher.Published.Single();
+        Assert.Equal("1", hop1.Content);
+        Assert.Equal("count", hop1.ProducerTaskId);
+        h.Source.Push(hop1);
+        await Eventually(() => h.Publisher.Published.Count == 2, "second follow-up published");
+        h.Source.Push(h.Publisher.Published.Last());
+        await Eventually(() => h.Log.Executed.Count == 3, "three hops executed");
+        await Eventually(() => h.Position() == 3, "all released");
     }
 
     [Fact]
     public async Task Rebalance_forgets_partition_state()
     {
-        var task = new FakeTask();
-        await using var h = new Harness(task);
+        await using var h = new Harness();
         await h.StartAsync();
 
         h.Source.Push(Event("t1", "e0"), partition: 3);
-        await Eventually(() => task.Executed.Count == 1, "event executed");
+        await Eventually(() => h.Log.Executed.Count == 1, "event executed");
+        await Eventually(() => h.Position(3) == 1, "position stored");
 
-        int[] before = [];
-        int[] after = [];
+        int[] before = [], after = [];
         await h.Source.RunOnPollThread(() =>
         {
             before = h.Loop.InitializedPartitions.ToArray();
@@ -204,8 +203,9 @@ public class TaskLoopTests
             after = h.Loop.InitializedPartitions.ToArray();
         }).WaitAsync(Patience);
 
-        Assert.Equal(new[] { 3 }, before);
+        Assert.Equal([3], before);
         Assert.Empty(after);
+        Assert.Empty(h.Watermark.Snapshot);
     }
 
     [Fact]
@@ -213,25 +213,15 @@ public class TaskLoopTests
     {
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var h = new Harness();
         var sourceClosedWhileExecuting = false;
-        FakeEventSource? source = null;
-        var task = new FakeTask
+        h.Log.OnExecute = async (_, _, ct) =>
         {
-            OnExecute = async (_, ct) =>
-            {
-                started.TrySetResult();
-                try
-                {
-                    await release.Task.WaitAsync(ct);
-                }
-                finally
-                {
-                    sourceClosedWhileExecuting = source!.Closed;
-                }
-            },
+            started.TrySetResult();
+            try { await release.Task.WaitAsync(ct); }
+            finally { sourceClosedWhileExecuting = h.Source.Closed; }
+            return null;
         };
-        var h = new Harness(task);
-        source = h.Source;
         await h.StartAsync();
 
         h.Source.Push(Event("t1", "e0"));
@@ -241,5 +231,40 @@ public class TaskLoopTests
         Assert.True(h.Source.Opened);
         Assert.True(h.Source.Closed);
         Assert.False(sourceClosedWhileExecuting);
+        Assert.Equal(-1, h.Position()); // interrupted event not released → redelivered next start
+    }
+
+    /// <summary>Hands out an already-retired actor first — the retire-between-lookup-and-enqueue window.</summary>
+    private sealed class StaleFirstRegistry(ITaskActor stale, ITaskActor live) : IActorRegistry
+    {
+        private int _calls;
+        public int Calls => Volatile.Read(ref _calls);
+        public ITaskActor GetOrCreateActor(string taskId, string taskType) => Interlocked.Increment(ref _calls) == 1 ? stale : live;
+        public ITaskActor? TryGetRunning(string taskId, string taskType) => live.IsRunning ? live : null;
+        public int CleanupCompletedActors() => 0;
+        public int RunningCount(string taskType) => 0;
+        public Task CleanupAsync() => Task.CompletedTask;
+    }
+
+    [Fact]
+    public async Task Event_rejected_by_an_actor_that_retired_mid_dispatch_is_redelivered_to_a_fresh_one()
+    {
+        var inner = new Harness(); // provides services; its own loop is never started
+        TaskActor NewActor() => (TaskActor)inner.Registry.GetOrCreateActor("t1", Type);
+
+        var stale = NewActor();
+        await inner.Registry.CleanupAsync(); // retires it (and clears the registry)
+        Assert.False(stale.IsRunning);
+
+        var outer = new Harness();
+        var live = (TaskActor)outer.Registry.GetOrCreateActor("t1", Type);
+        var registry = new StaleFirstRegistry(stale, live);
+        await using var h = new Harness(registry);
+        await h.StartAsync();
+
+        h.Source.Push(Event("t1", "e0"));
+        await Eventually(() => outer.Log.EventIds.Contains("e0"), "event redelivered and executed");
+        Assert.Equal(2, registry.Calls);
+        await outer.Registry.CleanupAsync();
     }
 }

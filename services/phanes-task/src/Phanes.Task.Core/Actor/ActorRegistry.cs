@@ -1,13 +1,19 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Phanes.Task.Core.Dispatch;
 using Phanes.Task.Core.Options;
 using Phanes.Task.Core.Registry;
+using Phanes.Task.Core.Status;
+using Phanes.Task.Core.Watermark;
 
 namespace Phanes.Task.Core.Actor;
 
+using System.Threading.Tasks;
+
 /// <summary>
 /// Default IActorRegistry. Plain dictionaries, no locks — see the threading
-/// note on IActorRegistry.
+/// note on IActorRegistry. Each actor gets its own DI scope from
+/// <see cref="IActorScopeFactory"/>; the task instance lives in that scope.
 /// </summary>
 public sealed class ActorRegistry : IActorRegistry
 {
@@ -15,18 +21,24 @@ public sealed class ActorRegistry : IActorRegistry
 
     private readonly Dictionary<string, Dictionary<string, ActorEntry>> _actors = new();
     private readonly CancellationTokenSource _shutdown = new();
-    private readonly ITaskRegistry _taskRegistry;
-    private readonly WorkerOptions _worker;
+    private readonly ITaskTypeRegistry _types;
+    private readonly IActorScopeFactory _scopes;
+    private readonly ActorServices _services;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<ActorRegistry> _logger;
 
     public ActorRegistry(
-        ITaskRegistry taskRegistry,
-        IOptions<TaskOptions> options,
+        ITaskTypeRegistry types,
+        IActorScopeFactory scopes,
+        IExecutionStatusStore status,
+        ITaskDispatcher dispatcher,
+        IWatermarkManager watermark,
+        IOptionsMonitor<TaskOptions> options,
         ILoggerFactory loggerFactory)
     {
-        _taskRegistry = taskRegistry;
-        _worker = options.Value.Worker;
+        _types = types;
+        _scopes = scopes;
+        _services = new ActorServices(status, dispatcher, watermark, options);
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<ActorRegistry>();
     }
@@ -53,43 +65,28 @@ public sealed class ActorRegistry : IActorRegistry
         return entry.Actor;
     }
 
+    public ITaskActor? TryGetRunning(string taskId, string taskType)
+        => _actors.TryGetValue(taskType, out var byId)
+           && byId.TryGetValue(taskId, out var entry)
+           && entry.Actor.IsRunning
+            ? entry.Actor
+            : null;
+
     public int CleanupCompletedActors()
     {
         var removed = 0;
-        List<string>? emptyTypes = null;
-
-        foreach (var (taskType, byId) in _actors)
+        foreach (var (taskType, byId) in _actors.ToArray())
         {
-            List<string>? retired = null;
-            foreach (var (taskId, entry) in byId)
+            foreach (var taskId in byId.Where(kv => kv.Value.Actor.IsCompleted).Select(kv => kv.Key).ToArray())
             {
-                if (entry.Actor.IsCompleted)
-                {
-                    (retired ??= new List<string>()).Add(taskId);
-                }
-            }
-            if (retired is not null)
-            {
-                foreach (var taskId in retired)
-                {
-                    byId.Remove(taskId);
-                }
-                removed += retired.Count;
+                byId.Remove(taskId);
+                removed++;
             }
             if (byId.Count == 0)
-            {
-                (emptyTypes ??= new List<string>()).Add(taskType);
-            }
-        }
-
-        if (emptyTypes is not null)
-        {
-            foreach (var taskType in emptyTypes)
             {
                 _actors.Remove(taskType);
             }
         }
-
         if (removed > 0)
         {
             _logger.LogDebug("Removed {Count} retired actors during cleanup scan.", removed);
@@ -98,21 +95,7 @@ public sealed class ActorRegistry : IActorRegistry
     }
 
     public int RunningCount(string taskType)
-    {
-        if (!_actors.TryGetValue(taskType, out var byId))
-        {
-            return 0;
-        }
-        var count = 0;
-        foreach (var entry in byId.Values)
-        {
-            if (entry.Actor.IsRunning)
-            {
-                count++;
-            }
-        }
-        return count;
-    }
+        => _actors.TryGetValue(taskType, out var byId) ? byId.Values.Count(e => e.Actor.IsRunning) : 0;
 
     public async global::System.Threading.Tasks.Task CleanupAsync()
     {
@@ -136,20 +119,14 @@ public sealed class ActorRegistry : IActorRegistry
 
     private ActorEntry CreateAndStart(string taskId, string taskType)
     {
-        if (!_taskRegistry.TryResolve(taskType, out var registration))
+        if (!_types.TryGet(taskType, out var descriptor))
         {
             throw new KeyNotFoundException(
                 $"No ITask registered for task_type '{taskType}' (task_id '{taskId}').");
         }
 
-        var actor = new TaskActor(
-            taskId,
-            taskType,
-            registration,
-            mailboxCapacity: _worker.ActorMailboxCapacity,
-            idleTimeout: TimeSpan.FromSeconds(_worker.ActorIdleTimeoutSeconds),
-            logger: _loggerFactory.CreateLogger<TaskActor>());
-
+        var scope = _scopes.Create(taskType, taskId);
+        var actor = new TaskActor(taskId, descriptor, scope, _services, _loggerFactory.CreateLogger<TaskActor>());
         var runTask = global::System.Threading.Tasks.Task.Run(() => actor.RunAsync(_shutdown.Token));
         return new ActorEntry(actor, runTask);
     }

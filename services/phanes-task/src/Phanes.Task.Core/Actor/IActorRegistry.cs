@@ -1,5 +1,7 @@
 namespace Phanes.Task.Core.Actor;
 
+using System.Threading.Tasks;
+
 /// <summary>
 /// In-memory registry of actors, keyed by (task_type, task_id).
 ///
@@ -16,6 +18,9 @@ public interface IActorRegistry
     /// Throws KeyNotFoundException if taskType has no registered ITask.
     /// </summary>
     ITaskActor GetOrCreateActor(string taskId, string taskType);
+
+    /// <summary>The live actor for (taskType, taskId), or null. Never creates one.</summary>
+    ITaskActor? TryGetRunning(string taskId, string taskType);
 
     /// <summary>
     /// Remove retired actors. Never stops a live actor — actors retire

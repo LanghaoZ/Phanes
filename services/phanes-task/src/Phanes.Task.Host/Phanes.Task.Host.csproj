@@ -18,6 +18,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Phanes.Task.Host.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Phanes.Task.Core\Phanes.Task.Core.csproj" />
     <ProjectReference Include="..\Phanes.Task.Tasks\Phanes.Task.Tasks.csproj" />
   </ItemGroup>

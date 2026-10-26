@@ -2,16 +2,18 @@ using Phanes.Task.Core.Model;
 
 namespace Phanes.Task.Core.Actor;
 
+using System.Threading.Tasks;
+
 /// <summary>
 /// Represents a running actor managing the lifecycle of one task instance.
 /// One actor exists per (task_type, task_id). The actor owns a bounded mailbox
 /// and drains it sequentially, delegating each event to its ITask.
 ///
 /// Lifecycle is self-managed: the actor retires itself when its task reports
-/// finished or when it has been idle past the configured timeout. Nothing
-/// outside the actor stops a live actor except process shutdown. Retirement is
-/// atomic with respect to EnqueueAsync, so an event is either accepted by a
-/// live actor or rejected with NotRunning — never dropped into a dead mailbox.
+/// finished, when it has been idle past the configured timeout, or when
+/// killed. Retirement is atomic with respect to EnqueueAsync, so an event is
+/// either accepted by a live actor or rejected with NotRunning — never dropped
+/// into a dead mailbox.
 /// </summary>
 public interface ITaskActor
 {
@@ -32,12 +34,18 @@ public interface ITaskActor
     ValueTask<EnqueueResult> EnqueueAsync(TaskEventEnvelope envelope, CancellationToken ct);
 
     /// <summary>
+    /// Kill: cancel the in-flight execution, record Killed for it and for any
+    /// buffered events, release their offsets, and retire.
+    /// </summary>
+    void RequestKill();
+
+    /// <summary>
     /// The actor's processing loop. Completes when the actor retires or the
     /// token is cancelled (process shutdown).
     /// </summary>
-    global::System.Threading.Tasks.Task RunAsync(CancellationToken ct);
+    Task RunAsync(CancellationToken ct);
 
     // Phase 3 — actor state persistence
-    global::System.Threading.Tasks.Task SnapshotAsync();
-    global::System.Threading.Tasks.Task RestoreAsync(string taskId);
+    Task SnapshotAsync();
+    Task RestoreAsync(string taskId);
 }

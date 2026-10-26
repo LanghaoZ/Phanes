@@ -1,5 +1,7 @@
 namespace Phanes.Task.Core.Consumer;
 
+using System.Threading.Tasks;
+
 /// <summary>One raw message pulled from the event stream.</summary>
 public sealed record ConsumedMessage(byte[]? Value, int Partition, long Offset);
 
@@ -21,8 +23,11 @@ public interface ITaskEventSource
     /// <summary>Next message, or null if none arrived within the timeout.</summary>
     ConsumedMessage? Poll(TimeSpan timeout);
 
-    /// <summary>Mark a message's offset as safe to commit.</summary>
-    void StoreOffset(ConsumedMessage message);
+    /// <summary>
+    /// Record the next offset to read for a partition (everything below it is
+    /// done). The client's auto-commit flushes stored positions to the broker.
+    /// </summary>
+    void StorePosition(int partition, long nextOffset);
 
     /// <summary>Commit stored offsets and leave the group.</summary>
     void Close();

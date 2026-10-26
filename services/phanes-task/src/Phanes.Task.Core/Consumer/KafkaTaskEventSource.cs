@@ -5,6 +5,8 @@ using Phanes.Task.Core.Options;
 
 namespace Phanes.Task.Core.Consumer;
 
+using System.Threading.Tasks;
+
 /// <summary>ITaskEventSource backed by a Confluent.Kafka consumer.</summary>
 public sealed class KafkaTaskEventSource : ITaskEventSource
 {
@@ -73,12 +75,9 @@ public sealed class KafkaTaskEventSource : ITaskEventSource
         }
     }
 
-    public void StoreOffset(ConsumedMessage message)
-    {
-        // Kafka commits the NEXT offset to read.
-        Consumer.StoreOffset(new TopicPartitionOffset(
-            _kafka.Topic, new Partition(message.Partition), new Offset(message.Offset + 1)));
-    }
+    public void StorePosition(int partition, long nextOffset)
+        => Consumer.StoreOffset(new TopicPartitionOffset(
+            _kafka.Topic, new Partition(partition), new Offset(nextOffset)));
 
     public void Close()
     {

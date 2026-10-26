@@ -1,13 +1,11 @@
 namespace Phanes.Task.Core.Model;
 
-/// <summary>
-/// Snapshot of a single partition's watermark state, exposed for monitoring and debugging.
-/// Returned by IWatermarkManager.GetWatermarkStatus().
-/// </summary>
-public record WatermarkStatus
-{
-    public int  Partition          { get; init; }
-    public long CommittedOffset    { get; init; }
-    public int  PendingCount       { get; init; }
-    public long NextExpectedOffset { get; init; }
-}
+using System.Threading.Tasks;
+
+/// <summary>Snapshot of one partition's watermark, for monitoring.</summary>
+public sealed record WatermarkStatus(
+    int Partition,
+    long CommittedOffset,
+    int PendingCount,
+    int InFlightCount,
+    bool Stuck);
