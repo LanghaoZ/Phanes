@@ -2,6 +2,8 @@ using Microsoft.Extensions.Logging;
 
 namespace Phanes.Task.Sdk;
 
+using System.Threading.Tasks;
+
 /// <summary>
 /// Shared execution context scoped to a TaskType, not to a single execution.
 /// One instance is created per registered TaskType and shared across all concurrent

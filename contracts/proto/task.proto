@@ -4,29 +4,66 @@ package phanes.task;
 
 option csharp_namespace = "Phanes.Task.Contracts";
 
+// Distinguishes work events from control events. Control events are
+// intercepted by the Task Loop and never reach an actor.
+enum TaskEventKind {
+  TASK_EVENT_KIND_WORK = 0;
+  TASK_EVENT_KIND_KILL = 1;  // task_id names the task to kill
+}
+
 // TaskEvent is the unit of work dispatched to a task actor via Kafka.
-// Partition and Offset are Kafka transport metadata and are NOT part of
-// this schema — they are attached by the consumer after deserialization.
+// Kafka partition/offset are transport metadata and are NOT part of this
+// schema — the consumer attaches them in an envelope after decoding.
 //
-// task_type is a string of the form "<owner>.<name>", e.g. "phanes.dummy"
-// for first-party tasks or "openinsights.data_ingestion" for plugin tasks.
-// The framework uses task_type to look up the registered ITask implementation.
+// task_type is "<owner>.<name>", e.g. "phanes.echo"; it selects the ITask
+// implementation. Kafka partition key is task_id, so one task's events are
+// ordered.
 message TaskEvent {
   string              task_type = 1;
   string              task_id   = 2;
   string              event_id  = 3;
   string              content   = 4;
   map<string, string> context   = 5;
+
+  TaskEventKind kind = 6;
+
+  // Lineage. Filled by the framework, never by task code.
+  // producer_task_id: task whose Result.next_events produced this event
+  //   (empty for externally submitted events). A kill of the producer also
+  //   drops its in-flight follow-ups.
+  // chain_depth: incremented per cross-task follow-up hop (self-chains do
+  //   not increment); the actor refuses to emit past the configured max.
+  // root_*/parent_*: the fan-out tree root (invariant) and the direct parent.
+  string producer_task_id = 7;
+  int32  chain_depth      = 8;
+  string root_task_id     = 9;
+  string root_task_type   = 10;
+  string parent_task_id   = 11;
 }
 
-// TaskResult is returned by ITask.ExecuteAsync after processing
-// a single TaskEvent.
+// A follow-up event a task asks the framework to publish after ExecuteAsync
+// returns. Lineage fields on the resulting TaskEvent are filled by the actor.
+// delay_ms > 0 schedules through the in-process delayed dispatcher (bounded;
+// volatile across restarts).
+message NextEvent {
+  string              task_type = 1;
+  string              task_id   = 2;
+  string              event_id  = 3;
+  string              content   = 4;
+  map<string, string> context   = 5;
+  int64               delay_ms  = 6;
+}
+
+// TaskResult is returned by ITask.ExecuteAsync for one TaskEvent.
 message TaskResult {
   string    task_id        = 1;
   string    event_id       = 2;
   bool      ok             = 3;
   string    error_message  = 4;
   string    status         = 5;
-  // Optional: handler may return a follow-up event to be re-enqueued.
-  TaskEvent followup_event = 6;
+  reserved 6;  // was followup_event (single); superseded by next_events
+  repeated NextEvent next_events = 7;
+  // Machine-readable token explaining HOW the task completed (e.g.
+  // "no_sources", "built"); surfaced in the event's status record.
+  string    completion_reason = 8;
 }
