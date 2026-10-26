@@ -1,11 +1,12 @@
 namespace Phanes.Task.Tasks;
 
-/// <summary>
-/// Canonical task_type string constants for first-party tasks shipped inside
-/// the Phanes.Task.Tasks assembly. Plugin tasks define their own constants
-/// in their respective service repositories.
-/// </summary>
+using System.Threading.Tasks;
+
+/// <summary>task_type constants for first-party ("phanes.") tasks.</summary>
 public static class PhanesNativeTaskTypes
 {
-    public const string Dummy = "phanes.dummy";
+    public const string Echo      = "phanes.echo";
+    public const string Countdown = "phanes.countdown";
+    public const string Flaky     = "phanes.flaky";
+    public const string Slow      = "phanes.slow";
 }

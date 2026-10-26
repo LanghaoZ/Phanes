@@ -2,6 +2,8 @@ using Autofac;
 using Autofac.Extensions.DependencyInjection;
 using Phanes.Task.Core.Consumer;
 using Phanes.Task.Core.Options;
+using Phanes.Task.Core.Registry;
+using Phanes.Task.Sdk;
 using Phanes.Task.Host;
 using Serilog;
 using Serilog.Formatting.Compact;
@@ -44,24 +46,18 @@ try
 
     var app = builder.Build();
 
+    // Type-level shared setup (ITaskTypeSetup.Configure) runs once, now that
+    // the container exists; contexts are sealed afterwards.
+    var root = app.Services.GetAutofacRoot();
+    root.Resolve<TaskTypeRegistry>()
+        .ConfigureSharedContexts(descriptor =>
+        {
+            using var scope = root.BeginLifetimeScope(AutofacActorScopeFactory.ActorTag);
+            return scope.ResolveKeyed<ITask>(descriptor.TaskType) as ITaskTypeSetup;
+        });
+
     app.UseSerilogRequestLogging();
-
-    // Task API endpoints
-    var tasks = app.MapGroup("/tasks");
-
-    tasks.MapPost("/init", () =>
-    {
-        // TODO: accept InitTaskRequest, publish TaskEvent to Kafka, return task_id
-        return Results.StatusCode(501);
-    })
-    .WithName("InitTask");
-
-    tasks.MapGet("/{taskId}/status", (string taskId) =>
-    {
-        // TODO: read from Redis (fast path) or MySQL (fallback), return task status
-        return Results.StatusCode(501);
-    })
-    .WithName("GetTaskStatus");
+    TaskApi.Map(app);
 
     app.Run();
 }
