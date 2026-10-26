@@ -1,5 +1,7 @@
 namespace Phanes.Task.Core.Options;
 
+using System.Threading.Tasks;
+
 /// <summary>
 /// Kafka client configuration. Maps to "PhanesTask:Kafka" in appsettings.
 /// </summary>

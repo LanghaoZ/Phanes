@@ -3,6 +3,8 @@ using Phanes.Task.Sdk;
 
 namespace Phanes.Task.Core.Registry;
 
+using System.Threading.Tasks;
+
 /// <summary>
 /// Default ITaskContext implementation. One instance per registered task type.
 /// Mutable during Configure, sealed afterward — calls to Set after Seal throw.
