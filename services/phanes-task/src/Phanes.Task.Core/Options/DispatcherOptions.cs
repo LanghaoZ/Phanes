@@ -9,5 +9,5 @@ public sealed class DispatcherOptions
     /// in-process and volatile: a restart loses pending timers, so long
     /// delays must not be routed through it.
     /// </summary>
-    public int MaxDelaySeconds { get; init; } = 3600;
+    public int MaxDelaySeconds { get; set; } = 3600;
 }

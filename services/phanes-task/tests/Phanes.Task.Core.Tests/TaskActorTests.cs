@@ -28,7 +28,7 @@ public class TaskActorTests
         {
             Dispatcher = new TaskDispatcher(Publisher, Options(), NullLogger<TaskDispatcher>.Instance);
             Scopes = new FakeScopeFactory(Log, Type);
-            Services = new ActorServices(Status, Dispatcher, Watermark, FastWorker(idleSeconds, mailbox, maxChainDepth));
+            Services = new ActorServices(Status, Dispatcher, Watermark, Options(worker: FastWorker(idleSeconds, mailbox, maxChainDepth)));
         }
 
         public TaskActor NewActor(string taskId = "task-1")

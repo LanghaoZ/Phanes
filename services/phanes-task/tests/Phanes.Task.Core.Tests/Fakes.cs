@@ -190,13 +190,21 @@ internal static class TestUtil
 {
     public static readonly TimeSpan Patience = TimeSpan.FromSeconds(5);
 
-    public static IOptions<TaskOptions> Options(Action<WorkerOptions>? _ = null, WorkerOptions? worker = null, KafkaOptions? kafka = null, DispatcherOptions? dispatcher = null)
-        => Microsoft.Extensions.Options.Options.Create(new TaskOptions
+    public static StaticMonitor Options(Action<WorkerOptions>? _ = null, WorkerOptions? worker = null, KafkaOptions? kafka = null, DispatcherOptions? dispatcher = null)
+        => new(new TaskOptions
         {
             Worker = worker ?? new WorkerOptions(),
             Kafka = kafka ?? new KafkaOptions { PollTimeoutMs = 5 },
             Dispatcher = dispatcher ?? new DispatcherOptions(),
         });
+
+    /// <summary>IOptionsMonitor over a fixed value; tests can swap it to simulate a hot reload.</summary>
+    public sealed class StaticMonitor(TaskOptions value) : IOptionsMonitor<TaskOptions>
+    {
+        public TaskOptions CurrentValue { get; set; } = value;
+        public TaskOptions Get(string? name) => CurrentValue;
+        public IDisposable? OnChange(Action<TaskOptions, string?> listener) => null;
+    }
 
     public static WorkerOptions FastWorker(double idleSeconds = 300, int mailbox = 8, int maxChainDepth = 64) => new()
     {

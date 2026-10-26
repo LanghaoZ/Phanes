@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
+using Phanes.Task.Core.Options;
 using Phanes.Task.Contracts;
 using Phanes.Task.Core.Dispatch;
 using Phanes.Task.Core.Registry;
@@ -100,5 +102,8 @@ internal static class TaskApi
             => Results.Ok(types.All.Select(t => new { task_type = t.TaskType, clr_type = t.ClrType.FullName })));
 
         app.MapGet("/watermark", (IWatermarkManager watermark) => Results.Ok(watermark.Snapshot));
+
+        // Effective options right now (appsettings + phanes-config overlay).
+        app.MapGet("/options", (IOptionsMonitor<TaskOptions> options) => Results.Ok(options.CurrentValue));
     }
 }

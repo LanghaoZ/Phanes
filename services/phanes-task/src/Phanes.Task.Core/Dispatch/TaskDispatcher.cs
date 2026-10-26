@@ -17,20 +17,22 @@ public sealed class TaskDispatcher : ITaskDispatcher, IAsyncDisposable
 {
     private readonly ITaskEventPublisher _publisher;
     private readonly ILogger<TaskDispatcher> _logger;
-    private readonly TimeSpan _maxDelay;
+    private readonly IOptionsMonitor<TaskOptions> _options;
     private readonly CancellationTokenSource _closing = new();
     private readonly HashSet<Task> _pending = new();
     private readonly object _gate = new();
 
     public TaskDispatcher(
         ITaskEventPublisher publisher,
-        IOptions<TaskOptions> options,
+        IOptionsMonitor<TaskOptions> options,
         ILogger<TaskDispatcher> logger)
     {
         _publisher = publisher;
         _logger = logger;
-        _maxDelay = TimeSpan.FromSeconds(options.Value.Dispatcher.MaxDelaySeconds);
+        _options = options;
     }
+
+    private TimeSpan MaxDelay => TimeSpan.FromSeconds(_options.CurrentValue.Dispatcher.MaxDelaySeconds);
 
     public int PendingDelayed
     {
@@ -46,9 +48,9 @@ public sealed class TaskDispatcher : ITaskDispatcher, IAsyncDisposable
     public Task SubmitWithDelayAsync(TaskEvent evt, TimeSpan delay, CancellationToken ct)
     {
         ThrowIfClosed();
-        if (delay > _maxDelay)
+        if (delay > MaxDelay)
         {
-            throw new DelayTooLongException(delay, _maxDelay);
+            throw new DelayTooLongException(delay, MaxDelay);
         }
         if (delay <= TimeSpan.Zero)
         {

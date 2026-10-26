@@ -33,12 +33,12 @@ public sealed class ActorRegistry : IActorRegistry
         IExecutionStatusStore status,
         ITaskDispatcher dispatcher,
         IWatermarkManager watermark,
-        IOptions<TaskOptions> options,
+        IOptionsMonitor<TaskOptions> options,
         ILoggerFactory loggerFactory)
     {
         _types = types;
         _scopes = scopes;
-        _services = new ActorServices(status, dispatcher, watermark, options.Value.Worker);
+        _services = new ActorServices(status, dispatcher, watermark, options);
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<ActorRegistry>();
     }

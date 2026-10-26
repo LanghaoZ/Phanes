@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Options;
 using Phanes.Task.Core.Dispatch;
 using Phanes.Task.Core.Options;
 using Phanes.Task.Core.Status;
@@ -12,4 +13,8 @@ public sealed record ActorServices(
     IExecutionStatusStore Status,
     ITaskDispatcher Dispatcher,
     IWatermarkManager Watermark,
-    WorkerOptions Worker);
+    IOptionsMonitor<TaskOptions> Options)
+{
+    /// <summary>Current worker options — re-read at each use so hot reloads apply.</summary>
+    public WorkerOptions Worker => Options.CurrentValue.Worker;
+}

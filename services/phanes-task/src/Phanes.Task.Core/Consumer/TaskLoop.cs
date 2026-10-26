@@ -38,14 +38,12 @@ public sealed class TaskLoop : BackgroundService
     private readonly IWatermarkManager _watermark;
     private readonly IExecutionStatusStore _status;
     private readonly ILogger<TaskLoop> _logger;
-    private readonly TimeSpan _pollTimeout;
-    private readonly TimeSpan _scanInterval;
-    private readonly TimeSpan _commitInterval;
+    private readonly IOptionsMonitor<TaskOptions> _options;
 
     private readonly HashSet<int> _initializedPartitions = new();
 
     public TaskLoop(
-        IOptions<TaskOptions> options,
+        IOptionsMonitor<TaskOptions> options,
         ITaskEventSource source,
         IActorRegistry actors,
         IWatermarkManager watermark,
@@ -57,10 +55,13 @@ public sealed class TaskLoop : BackgroundService
         _watermark = watermark;
         _status = status;
         _logger = logger;
-        _pollTimeout = TimeSpan.FromMilliseconds(options.Value.Kafka.PollTimeoutMs);
-        _scanInterval = TimeSpan.FromSeconds(options.Value.Worker.ActorScanIntervalSeconds);
-        _commitInterval = TimeSpan.FromSeconds(options.Value.Worker.WatermarkCommitIntervalSeconds);
+        _options = options;
     }
+
+    // Read every iteration so hot-reloaded values apply without a restart.
+    private TimeSpan PollTimeout => TimeSpan.FromMilliseconds(_options.CurrentValue.Kafka.PollTimeoutMs);
+    private TimeSpan ScanInterval => TimeSpan.FromSeconds(_options.CurrentValue.Worker.ActorScanIntervalSeconds);
+    private TimeSpan CommitInterval => TimeSpan.FromSeconds(_options.CurrentValue.Worker.WatermarkCommitIntervalSeconds);
 
     protected override global::System.Threading.Tasks.Task ExecuteAsync(CancellationToken stoppingToken)
         => global::System.Threading.Tasks.Task.Factory.StartNew(
@@ -79,11 +80,11 @@ public sealed class TaskLoop : BackgroundService
             _source.Open();
             _logger.LogInformation("Task loop started.");
 
-            var nextScan = DateTime.UtcNow + _scanInterval;
-            var nextCommit = DateTime.UtcNow + _commitInterval;
+            var nextScan = DateTime.UtcNow + ScanInterval;
+            var nextCommit = DateTime.UtcNow + CommitInterval;
             while (!ct.IsCancellationRequested)
             {
-                var message = _source.Poll(_pollTimeout);
+                var message = _source.Poll(PollTimeout);
                 if (message is not null)
                 {
                     HandleMessage(message, ct);
@@ -93,12 +94,12 @@ public sealed class TaskLoop : BackgroundService
                 if (now >= nextCommit)
                 {
                     CommitWatermark(now);
-                    nextCommit = now + _commitInterval;
+                    nextCommit = now + CommitInterval;
                 }
                 if (now >= nextScan)
                 {
                     _actors.CleanupCompletedActors();
-                    nextScan = now + _scanInterval;
+                    nextScan = now + ScanInterval;
                 }
             }
         }

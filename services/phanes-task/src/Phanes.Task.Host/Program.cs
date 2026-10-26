@@ -1,5 +1,6 @@
 using Autofac;
 using Autofac.Extensions.DependencyInjection;
+using Phanes.Task.Core.Configuration;
 using Phanes.Task.Core.Consumer;
 using Phanes.Task.Core.Options;
 using Phanes.Task.Core.Registry;
@@ -16,6 +17,14 @@ Log.Logger = new LoggerConfiguration()
 try
 {
     var builder = WebApplication.CreateBuilder(args);
+
+    // Dynamic configuration: phanes-config document "phanes-task/options"
+    // layered over appsettings (hot-reloaded via IOptionsMonitor). Disabled
+    // when PhanesTask:ConfigService:Url is empty.
+    builder.Configuration.AddPhanesConfig((message, ex) =>
+    {
+        if (ex is null) Log.Information(message); else Log.Warning(ex, message);
+    });
 
     builder.Host.UseServiceProviderFactory(new AutofacServiceProviderFactory());
     builder.Host.ConfigureContainer<ContainerBuilder>(b => b.RegisterModule<TaskModule>());

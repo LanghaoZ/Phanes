@@ -23,15 +23,17 @@ public sealed class WatermarkManager : IWatermarkManager
 
     private readonly ConcurrentQueue<(Kind Kind, int Partition, long Offset)> _inbox = new();
     private readonly Dictionary<int, PartitionState> _partitions = new();
-    private readonly TimeSpan _stuckAfter;
+    private readonly IOptionsMonitor<TaskOptions> _options;
     private readonly ILogger<WatermarkManager> _logger;
     private IReadOnlyList<WatermarkStatus> _snapshot = Array.Empty<WatermarkStatus>();
 
-    public WatermarkManager(IOptions<TaskOptions> options, ILogger<WatermarkManager> logger)
+    public WatermarkManager(IOptionsMonitor<TaskOptions> options, ILogger<WatermarkManager> logger)
     {
-        _stuckAfter = TimeSpan.FromSeconds(options.Value.Worker.WatermarkStuckSeconds);
+        _options = options;
         _logger = logger;
     }
+
+    private TimeSpan StuckAfter => TimeSpan.FromSeconds(_options.CurrentValue.Worker.WatermarkStuckSeconds);
 
     public IReadOnlyList<WatermarkStatus> Snapshot => Volatile.Read(ref _snapshot);
 
@@ -155,7 +157,7 @@ public sealed class WatermarkManager : IWatermarkManager
         }
 
         state.StuckSince ??= utcNow;
-        if (!state.StuckReported && utcNow - state.StuckSince.Value >= _stuckAfter)
+        if (!state.StuckReported && utcNow - state.StuckSince.Value >= StuckAfter)
         {
             state.StuckReported = true;
             _logger.LogError(
